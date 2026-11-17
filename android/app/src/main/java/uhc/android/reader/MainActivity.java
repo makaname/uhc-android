@@ -122,6 +122,8 @@ public class MainActivity extends Activity {
                 Uri u = request.getUrl();
                 if (PackServer.HOST.equals(u.getHost()) && u.getPort() == PackServer.PORT) return false;
                 String host = u.getHost() == null ? "" : u.getHost().toLowerCase(Locale.ROOT);
+                // Embedded frames: only Bandcamp's player may load (UHC's Music pages); others stay blocked.
+                if (!request.isForMainFrame()) return !PackServer.isAllowedRemote(host);
                 if (!onSetupPage && (host.equals("mspaintadventures.com") || host.endsWith(".mspaintadventures.com"))) {
                     // A Flash linking to another page: open it in the app, as desktop UHC does.
                     view.evaluateJavascript("window.UHCMobile && UHCMobile.openInApp(" + JSONObject.quote(u.toString()) + ")", null);

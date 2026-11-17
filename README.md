@@ -11,8 +11,8 @@ This repo has no Homestuck content. You need your own copy of the UHC asset pack
 3. Copy the zip into the phone's `Download` folder (LocalSend, USB, anything). Don't unzip it.
 4. Install the APK, open it, and tap **Choose UHC-Asset-Pack-V2.zip** to pick the zip once. The app asks for no permissions; it keeps read access to that one file only.
 
-Works on Android 8 and later. The app has no internet permission: everything comes from the pack on your
-phone, and outside links open in your browser. Light or dark follows the phone; to fix one, use
+Works on Android 8 and later. Everything comes from the pack on your phone. The only thing the app reaches online is Bandcamp's
+player, so songs play on UHC's Music pages; it refuses every other site, and outside links open in your browser. Light or dark follows the phone; to fix one, use
 Settings → Application Theme.
 
 ## Build
