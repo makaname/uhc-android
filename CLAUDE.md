@@ -13,7 +13,7 @@ unknown bug there, while the compiled 2.8.1 release works.
 - `android/` is a plain Java WebView app, with no AndroidX. `PackServer` serves `http://127.0.0.1:8137/` (bundle) and `/pack/` (asset pack); it is plain Java (`route()` returns a `Reply`) so JVM tests cover it, and `MainActivity.toWebResponse` adapts it. `PackSource` reads the pack in place from `UHC-Asset-Pack-V2.zip`, which the reader picks once in Android's file picker (a persisted read grant on that one file; the app has no storage permission). It reads through a shared `FileChannel` with positional reads; `PackSource.Folder` remains for tests and the PC harness only.
 - The `UHCNative` bridge is visible to all page JS, including the pack's mods: setup calls only work on the setup page, `openExternal` only opens http(s)/mailto. Keep it that small. INTERNET is only for Bandcamp's embedded player (Music pages): `PackServer.isAllowedRemote` lets bandcamp.com and bcbits.com through and answers every other remote host with 403, and `shouldOverrideUrlLoading` blocks other iframe navigations. Keep that allowlist that small.
 - Tests: `test/` (Node, shim in a fake browser) and `android/app/src/test/` (JVM: PackSource, PackServer).
-- The asset pack is copyrighted and 4.4 GB. Never commit it. Phones get it as one stored zip via LocalSend or USB.
+- The asset pack is copyrighted and 4.4 GB. Never commit it. Phones get it as one zip file (stored is fastest).
 
 ## Commands
 
