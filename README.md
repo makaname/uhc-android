@@ -9,7 +9,7 @@ This repo has no Homestuck content. You need your own copy of the UHC asset pack
 1. Get the APK from [Releases](../../releases), or build it (below).
 2. Make the single-file asset pack on a PC: zip the *contents* of your `Asset Pack V2` folder, uncompressed, as `UHC-Asset-Pack-V2.zip`. With 7-Zip: `7z a -tzip -mx0 UHC-Asset-Pack-V2.zip .` from inside the folder. If you've run the desktop app before, use that folder, since it includes the unpacked built-in mods (`archive/imods`).
 3. Copy the zip into the phone's `Download` folder (LocalSend, USB, anything). Don't unzip it.
-4. Install the APK, open it, and turn on file access when asked. It finds the zip by itself. An unpacked `Asset Pack V2` folder works too.
+4. Install the APK, open it, and tap **Choose UHC-Asset-Pack-V2.zip** to pick the zip once. The app asks for no permissions; it keeps read access to that one file only.
 
 Works on Android 8 and later. The app has no internet permission: everything comes from the pack on your
 phone, and outside links open in your browser. Light or dark follows the phone; to fix one, use

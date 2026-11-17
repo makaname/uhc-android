@@ -26,3 +26,6 @@ node_modules/
 .playwright-mcp/
 .DS_Store
 Thumbs.db
+
+# Claude Code session worktrees
+/.claude/

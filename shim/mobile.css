@@ -177,11 +177,44 @@ html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 4px; }
   width: 22px; height: 22px;
   fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
 }
-#uhcReaderBar .uhc-progress { font-size: 11px; color: var(--uhc-bar-muted); text-align: right; padding-left: 4px; }
+/* The page counter is a button: tap it to go to a page */
+#uhcReaderBar button.uhc-progress {
+  display: block; width: 100%; min-width: 0;
+  font-size: 11px; color: var(--uhc-bar-muted); text-align: right; padding: 4px 4px 4px 6px;
+}
 #uhcReaderBar .uhc-progress[hidden] { visibility: hidden; display: block; }
-#uhcReaderBar .uhc-progress-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
-#uhcReaderBar .uhc-track { height: 4px; background: var(--uhc-track); margin-top: 4px; border-radius: 2px; overflow: hidden; }
-#uhcReaderBar .uhc-fill { height: 100%; width: 0; background: var(--uhc-link); }
+#uhcReaderBar .uhc-progress-text {
+  display: block; font-variant-numeric: tabular-nums; white-space: nowrap;
+  text-decoration: underline dotted; text-underline-offset: 3px;   /* hints that it can be tapped */
+}
+#uhcReaderBar .uhc-track { display: block; height: 4px; background: var(--uhc-track); margin-top: 4px; border-radius: 2px; overflow: hidden; }
+#uhcReaderBar .uhc-fill { display: block; height: 100%; width: 0; background: var(--uhc-link); }
+
+/* Go-to-page box, in the reader bar's MSPA style */
+#uhcJump {
+  width: min(320px, calc(100vw - 32px)); padding: 0; border: 2px solid var(--uhc-bar-edge);
+  background: var(--uhc-bar-bg); color: var(--uhc-bar-ink);
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+}
+#uhcJump::backdrop { background: rgba(0, 0, 0, 0.5); }
+#uhcJump form { margin: 0; padding: 14px 14px 12px; }
+#uhcJump label { display: block; font: bold 16px "Courier New", Courier, monospace; margin-bottom: 10px; }
+#uhcJump input {
+  box-sizing: border-box; width: 100%; min-height: 48px; padding: 8px 12px;
+  background: var(--uhc-next-bg); color: var(--uhc-link); border: 1px solid var(--uhc-next-border);
+  font: bold 20px "Courier New", Courier, monospace; border-radius: 0;
+}
+#uhcJump input:focus-visible { outline: 2px solid var(--uhc-link); outline-offset: 1px; }
+#uhcJump .uhc-jump-hint { margin: 8px 0 0; font-size: 12px; color: var(--uhc-bar-muted); min-height: 1.3em; }
+#uhcJump .uhc-jump-hint.bad { color: #b00000; }
+:root[data-uhc-theme="dark"] #uhcJump .uhc-jump-hint.bad { color: #ff6b6b; }
+#uhcJump .uhc-jump-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+#uhcJump .uhc-jump-actions button {
+  min-width: 88px; min-height: 48px; padding: 0 14px; border: 1px solid var(--uhc-next-border);
+  background: var(--uhc-next-bg); color: var(--uhc-bar-ink); font: bold 15px "Courier New", Courier, monospace;
+}
+#uhcJump .uhc-jump-actions .uhc-jump-go { color: var(--uhc-link); }
+#uhcJump .uhc-jump-actions button:active { filter: brightness(0.9); }
 #uhcReaderBar a:focus-visible, #uhcReaderBar button:focus-visible { outline: 2px solid var(--uhc-link); outline-offset: 2px; }
 
 /* Landscape phones: one row, so the panel keeps most of the short screen */
@@ -190,7 +223,7 @@ html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 4px; }
   #uhcReaderBar .uhc-next { flex: 1 1 auto; min-width: 0; margin-bottom: 0; min-height: 44px; padding: 6px 10px; }
   #uhcReaderBar .uhc-controls { flex: 0 0 auto; grid-template-columns: repeat(4, 56px) 120px; }
   #uhcReaderBar button { min-height: 44px; }
-  #uhcReaderBar button span { display: none; }
+  #uhcReaderBar button:not(.uhc-progress) span { display: none; }
 }
 
 /* Tablets, foldables and landscape: keep story text at a readable measure, centred like the

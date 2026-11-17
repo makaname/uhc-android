@@ -159,8 +159,8 @@
         '<button type="button" data-act="home" aria-label="Home">' + ICONS.home + '<span aria-hidden="true">Home</span></button>' +
         '<button type="button" data-act="save" aria-label="Save or load your place">' + ICONS.save + '<span aria-hidden="true">Save</span></button>' +
         '<button type="button" data-act="settings" aria-label="Settings">' + ICONS.settings + '<span aria-hidden="true">Settings</span></button>' +
-        '<div class="uhc-progress" role="progressbar" aria-valuemin="1" aria-valuemax="' + HOMESTUCK_PAGES + '" hidden>' +
-          '<span class="uhc-progress-text"></span><div class="uhc-track"><div class="uhc-fill"></div></div></div>' +
+        '<button type="button" class="uhc-progress" data-act="jump" hidden>' +
+          '<span class="uhc-progress-text"></span><span class="uhc-track"><span class="uhc-fill"></span></span></button>' +
       '</div>';
     document.body.appendChild(bar);
 
@@ -191,9 +191,62 @@
         if (b) b.click();
       } else if (act === 'settings') {
         vm.$pushURL('/settings');
+      } else if (act === 'jump') {
+        openJump(vm);
       }
     });
     return bar;
+  }
+
+  // ---------- go to page (tap the "253 / 8130" counter) ----------
+  // Replaces the desktop jumpbox, which lives in the hidden header. Pages past the reader's
+  // new-reader limit still land on UHC's own spoiler page.
+
+  var jump = null;
+  function buildJump(vm) {
+    var d = document.createElement('dialog');
+    d.id = 'uhcJump';
+    d.setAttribute('aria-labelledby', 'uhcJumpTitle');
+    d.innerHTML =
+      '<form method="dialog" novalidate>' +
+        '<label id="uhcJumpTitle" for="uhcJumpInput">Go to page</label>' +
+        '<input id="uhcJumpInput" type="number" inputmode="numeric" min="1" max="' + HOMESTUCK_PAGES + '" ' +
+          'enterkeyhint="go" autocomplete="off">' +
+        '<p class="uhc-jump-hint" aria-live="polite"></p>' +
+        '<div class="uhc-jump-actions">' +
+          '<button type="button" value="cancel" class="uhc-jump-cancel">Cancel</button>' +
+          '<button type="submit" value="go" class="uhc-jump-go">Go</button>' +
+        '</div>' +
+      '</form>';
+    document.body.appendChild(d);
+    var input = d.querySelector('input'), hint = d.querySelector('.uhc-jump-hint');
+    function defaultHint() { hint.textContent = 'Homestuck page 1 to ' + HOMESTUCK_PAGES.toLocaleString(); hint.className = 'uhc-jump-hint'; }
+    d.querySelector('.uhc-jump-cancel').addEventListener('click', function () { d.close(); });
+    d.addEventListener('click', function (e) { if (e.target === d) d.close(); });   // tap outside the box
+    d.querySelector('form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var n = Number(String(input.value).trim());
+      if (!Number.isInteger(n) || n < 1 || n > HOMESTUCK_PAGES) {
+        hint.textContent = 'Enter a page number from 1 to ' + HOMESTUCK_PAGES.toLocaleString() + '.';
+        hint.className = 'uhc-jump-hint bad';
+        input.focus();
+        return;
+      }
+      d.close();
+      navigate(function () { vm.$pushURL('/homestuck/' + n); });
+    });
+    d.addEventListener('close', defaultHint);
+    defaultHint();
+    return d;
+  }
+  function openJump(vm) {
+    if (!jump) jump = buildJump(vm);
+    var input = jump.querySelector('input');
+    var m = /^\/homestuck\/(\d+)/.exec(activeUrl(vm));
+    input.value = '';
+    input.placeholder = m ? m[1] : '1';
+    jump.showModal();
+    input.focus();
   }
 
   function currentNextLinks(vm) {
@@ -225,8 +278,7 @@
       if (!v) return;
       var n = Number(v);
       prog.querySelector('.uhc-progress-text').textContent = n + ' / ' + HOMESTUCK_PAGES;
-      prog.setAttribute('aria-valuenow', String(n));
-      prog.setAttribute('aria-label', 'Homestuck page ' + n + ' of ' + HOMESTUCK_PAGES);
+      prog.setAttribute('aria-label', 'Page ' + n + ' of ' + HOMESTUCK_PAGES + '. Go to a page');
       prog.querySelector('.uhc-fill').style.width = Math.min(100, (n / HOMESTUCK_PAGES) * 100).toFixed(2) + '%';
     });
 
@@ -371,6 +423,7 @@
   // Android's back gesture: go back in the app's history; returns false when there's nowhere to go.
   window.UHCMobile = {
     back: function () {
+      if (jump && jump.open) { jump.close(); return true; }   // back closes the go-to-page box first
       var vm = window.vm;
       if (!vm || !vm.$localData) return false;
       var td = vm.$localData.tabData, tab = td.tabs[td.activeTabKey];

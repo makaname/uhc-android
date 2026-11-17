@@ -1,14 +1,15 @@
 package uhc.android.reader;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.UriPermission;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -17,9 +18,9 @@ import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
-import android.provider.Settings;
+import android.provider.OpenableColumns;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -36,33 +37,22 @@ import android.window.OnBackInvokedDispatcher;
 
 import org.json.JSONObject;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.FileInputStream;
 import java.util.Locale;
 import java.util.Map;
 
 /**
  * A single full-screen WebView running the unchanged UHC 2.8.1 bundle.
  * PackServer feeds it files; the JS bridge "UHCNative" handles setup, external links and system-bar colours.
+ *
+ * The asset pack is one zip the reader picks once in Android's file picker. The app keeps read access
+ * to that one file (a persisted URI permission) and reads it in place; it has no broad storage permission.
  */
 public class MainActivity extends Activity {
-    private static final int REQ_PICK_FOLDER = 1;
-    private static final int REQ_READ_STORAGE = 2;
-    private static final String PREF_PACK = "packPath";
-    private static final String PREF_VERIFIED = "verifiedPackPath";
-    private static final String PREF_VERIFIED_LENGTH = "verifiedLength";
+    private static final int REQ_PICK_ZIP = 1;
+    private static final String PREF_URI = "packUri";
 
-    /** Single-file pack (preferred: one transfer, read in place, invisible to the gallery). */
-    private static final String PACK_ZIP = "UHC-Asset-Pack-V2.zip";
-    private static final String[] ZIP_LOCATIONS = {
-        "Download/" + PACK_ZIP, "Homestuck/" + PACK_ZIP, PACK_ZIP, "Documents/" + PACK_ZIP,
-    };
-    /** Unpacked folder locations people commonly copy to. */
-    private static final String[] FOLDER_LOCATIONS = {
-        "Homestuck/Asset Pack V2", "Asset Pack V2", "Download/Asset Pack V2", "Documents/Asset Pack V2",
-        "Homestuck/Asset Pack V2 - The Unofficial Homestuck Collection/Asset Pack V2",
-        "Download/Asset Pack V2 - The Unofficial Homestuck Collection/Asset Pack V2",
-    };
+    static final String PACK_ZIP = "UHC-Asset-Pack-V2.zip";
 
     /** Regular (non-hidden) files in Asset Pack V2. Fewer means it's still copying or got cut short. */
     private static final int EXPECTED_FILES = 18880;
@@ -76,8 +66,13 @@ public class MainActivity extends Activity {
     private FrameLayout rootView;
     private PackServer server;
     private SharedPreferences prefs;
-    private volatile int lastCount = -1;
+
+    // Setup state, read by the setup page through status()
     private volatile boolean checking = false;
+    private volatile int lastCount = -1;
+    private volatile String packName = null;
+    /** "incomplete", "notzip", "unreadable", "moved" or null. */
+    private volatile String problem = null;
     /** True while the setup page is showing; setup-only bridge calls are ignored otherwise. */
     private volatile boolean onSetupPage = false;
 
@@ -145,26 +140,20 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(new Bridge(), "UHCNative");
 
-        File pack = findPack();
-        if (pack != null && isVerified(pack)) {
-            openPack(pack);
-        } else {
-            showSetup();
-            if (pack != null) verifyThenOpen(pack);
-        }
-    }
-
-    private void openPack(File pack) {
-        PackSource src = sourceFor(pack);
-        if (src == null) { verifyThenOpen(pack); return; }
-        if (pack.isDirectory()) hideFromGallery(pack);
-        server.setPack(src);
-        web.loadUrl(PackServer.ORIGIN + "/");
+        Uri pack = savedPack();
+        if (pack == null) showSetup();
+        else openOrCheck(pack, true);
     }
 
     private void showSetup() {
-        server.setPack(null);
+        closeOpenPack();
         web.loadUrl(PackServer.ORIGIN + "/__setup/index.html");
+    }
+
+    private void closeOpenPack() {
+        PackSource old = server.pack();
+        server.setPack(null);
+        if (old != null) old.close();
     }
 
     /** Adapts a WebView request to {@link PackServer#route} and its reply back. */
@@ -183,163 +172,138 @@ public class MainActivity extends Activity {
         return new WebResourceResponse(r.mime, r.encoding(), r.status, r.reason, r.headers, r.body);
     }
 
-    // ---------- reading the pack (folder or zip), cached ----------
+    // ---------- the picked zip ----------
 
-    private File cachedFile;
-    private long cachedLength = -1, cachedModified = -1;
-    private PackSource cachedSource;
-
-    /** Opens the pack, reusing the parsed zip index while the file is unchanged. Null if unreadable. */
-    private synchronized PackSource sourceFor(File f) {
-        if (f == null) return null;
-        if (f.equals(cachedFile) && f.length() == cachedLength && f.lastModified() == cachedModified) return cachedSource;
-        PackSource s = PackSource.open(f);
-        if (s != null && !s.looksLikePack()) s = null;
-        cachedFile = f; cachedLength = f.length(); cachedModified = f.lastModified(); cachedSource = s;
-        return s;
+    /** The picked zip, if the app still holds read access to it. */
+    private Uri savedPack() {
+        String s = prefs.getString(PREF_URI, null);
+        if (s == null) return null;
+        Uri u = Uri.parse(s);
+        for (UriPermission p : getContentResolver().getPersistedUriPermissions()) {
+            if (p.isReadPermission() && p.getUri().equals(u)) return u;
+        }
+        return null;   // access was revoked (app data cleared, or the file's app forgot it)
     }
 
-    // ---------- completeness check ----------
-
-    private boolean isVerified(File pack) {
-        return pack.getAbsolutePath().equals(prefs.getString(PREF_VERIFIED, null))
-            && prefs.getLong(PREF_VERIFIED_LENGTH, -2) == pack.length();
+    /** Opens the zip through its file descriptor; null if it can't be opened or isn't a complete zip. */
+    private PackSource openZip(Uri uri) {
+        ParcelFileDescriptor pfd;
+        try {
+            pfd = getContentResolver().openFileDescriptor(uri, "r");
+        } catch (Exception e) {
+            return null;
+        }
+        if (pfd == null) return null;
+        long size = pfd.getStatSize();
+        FileInputStream in = new FileInputStream(pfd.getFileDescriptor());
+        return PackSource.openZip(in.getChannel(), displayName(uri), () -> sizeOf(uri) == size, () -> {
+            in.close();
+            pfd.close();
+        });
     }
 
-    /** Counts the pack's files off the UI thread; opens the app if it's complete, else reports to the setup page. */
-    private void verifyThenOpen(File pack) {
+    /** The file's size now, or -1 if it's gone (used to notice a moved, deleted or replaced pack). */
+    private long sizeOf(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.SIZE}, null, null, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getLong(0);
+        } catch (Exception ignored) {
+            // provider gone or file deleted
+        }
+        return -1;
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getString(0);
+        } catch (Exception ignored) {
+            // fall through
+        }
+        return PACK_ZIP;
+    }
+
+    /**
+     * Opens the pack off the UI thread. A pack already checked at this size opens straight away;
+     * otherwise its files are counted first, and the setup page shows the result.
+     */
+    private void openOrCheck(Uri uri, boolean quietIfVerified) {
         if (checking) return;
         checking = true;
-        if (pack.isDirectory()) hideFromGallery(pack); // early, so copying in progress stops filling the gallery
-        notifySetupPageState();
+        problem = null;
+        if (!quietIfVerified) notifySetupPageState();
         new Thread(() -> {
-            PackSource src = sourceFor(pack);   // a zip that's still copying has no index yet -> null
+            String name = displayName(uri);
+            PackSource src = openZip(uri);
             int n = src == null ? 0 : src.countFiles();
-            lastCount = n;
-            checking = false;
+            boolean looksRight = src != null && src.looksLikePack();
+            boolean complete = looksRight && n >= EXPECTED_FILES - FILE_TOLERANCE;
+
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (n >= EXPECTED_FILES - FILE_TOLERANCE) {
-                    prefs.edit().putString(PREF_VERIFIED, pack.getAbsolutePath()).putLong(PREF_VERIFIED_LENGTH, pack.length()).apply();
-                    openPack(pack);
-                } else {
-                    notifySetupPageState();
+                checking = false;
+                packName = name;
+                lastCount = n;
+                if (isFinishing() || isDestroyed()) {
+                    if (src != null) src.close();
+                    return;
                 }
+                if (complete) {
+
+                    closeOpenPack();
+                    server.setPack(src);
+                    problem = null;
+                    web.loadUrl(PackServer.ORIGIN + "/");
+                    return;
+                }
+                if (src != null) src.close();
+                problem = src == null ? (name.toLowerCase(Locale.ROOT).endsWith(".zip") ? "unreadable" : "notzip")
+                    : !looksRight ? "notzip" : "incomplete";
+                if (!onSetupPage) showSetup(); else notifySetupPageState();
             });
-        }, "pack-count").start();
+        }, "pack-open").start();
     }
 
     private void notifySetupPageState() {
         if (web != null && onSetupPage) web.evaluateJavascript("window.onNativeResume && onNativeResume()", null);
     }
 
-    // ---------- keep the pack out of the photo gallery ----------
-
-    /**
-     * A ".nomedia" file tells Android's media scanner to skip the folder, so the pack's
-     * 12,000 GIFs and PNGs don't show up in Photos/Gallery. Nothing is deleted.
-     */
-    private void hideFromGallery(File pack) {
-        File marker = new File(pack, ".nomedia");
+    private void pickZip() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                "application/zip", "application/x-zip-compressed", "application/x-zip", "application/octet-stream"})
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        // Start in Download, where LocalSend and most transfers put it.
+        i.putExtra(DocumentsContract.EXTRA_INITIAL_URI,
+            Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload"));
         try {
-            if (!marker.exists() && !marker.createNewFile()) return;
-        } catch (IOException e) {
-            return;
+            startActivityForResult(i, REQ_PICK_ZIP);
+        } catch (ActivityNotFoundException e) {
+            problem = "unreadable";
+            notifySetupPageState();
         }
-        // Ask the media index to re-read the folder so already-indexed images drop out.
-        android.media.MediaScannerConnection.scanFile(this,
-            new String[]{marker.getAbsolutePath(), pack.getAbsolutePath()}, null, null);
-        File parent = pack.getParentFile();
-        if (parent != null) {
-            android.media.MediaScannerConnection.scanFile(this, new String[]{parent.getAbsolutePath()}, null, null);
-        }
-    }
-
-    // ---------- asset pack location ----------
-
-    /** A pack candidate: the zip file exists (it may still be copying), or the folder has the archive data. */
-    private static boolean isCandidate(File f) {
-        if (f == null) return false;
-        if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".zip")) return true;
-        return new File(f, "archive/data/mspa.json").isFile();
-    }
-
-    /** Finds the pack: a verified saved choice first, then the zip, then unpacked folders. */
-    private File findPack() {
-        if (!hasFileAccess()) return null;
-        String saved = prefs.getString(PREF_PACK, null);
-        File savedFile = saved == null ? null : new File(saved);
-        if (savedFile != null && isCandidate(savedFile) && isVerified(savedFile)) return savedFile;
-
-        File base = Environment.getExternalStorageDirectory();
-        for (String rel : ZIP_LOCATIONS) {
-            File f = new File(base, rel);
-            if (isCandidate(f)) return remember(f);
-        }
-        if (savedFile != null && isCandidate(savedFile)) return savedFile;
-        for (String rel : FOLDER_LOCATIONS) {
-            File f = new File(base, rel);
-            if (isCandidate(f)) return remember(f);
-        }
-        return null;
-    }
-
-    private File remember(File f) {
-        prefs.edit().putString(PREF_PACK, f.getAbsolutePath()).apply();
-        return f;
-    }
-
-    private boolean hasFileAccess() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return Environment.isExternalStorageManager();
-        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private void requestFileAccess() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName())));
-            } catch (ActivityNotFoundException e) {
-                startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
-            }
-        } else {
-            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_READ_STORAGE);
-        }
-    }
-
-    /** Turns a folder-picker tree URI into a real path, e.g. "primary:Homestuck/Asset Pack V2". */
-    private static File treeUriToFile(Uri tree) {
-        String id = DocumentsContract.getTreeDocumentId(tree);
-        int colon = id.indexOf(':');
-        if (colon < 0) return null;
-        String volume = id.substring(0, colon), rel = id.substring(colon + 1);
-        File base = "primary".equalsIgnoreCase(volume) ? Environment.getExternalStorageDirectory() : new File("/storage/" + volume);
-        return rel.isEmpty() ? base : new File(base, rel);
     }
 
     @Override
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_PICK_FOLDER || resultCode != RESULT_OK || data == null || data.getData() == null) return;
-        File dir = treeUriToFile(data.getData());
-        // People often pick the folder that holds the pack; look for the zip or "Asset Pack V2" inside it.
-        if (dir != null && !isCandidate(dir)) {
-            if (isCandidate(new File(dir, PACK_ZIP))) dir = new File(dir, PACK_ZIP);
-            else if (isCandidate(new File(dir, "Asset Pack V2"))) dir = new File(dir, "Asset Pack V2");
+        if (requestCode != REQ_PICK_ZIP || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        ContentResolver cr = getContentResolver();
+        try {
+            cr.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (SecurityException e) {
+            // Some file apps don't offer lasting access; it still works until the app restarts.
         }
-        if (isCandidate(dir)) {
-            prefs.edit().putString(PREF_PACK, dir.getAbsolutePath()).apply();
-            if (isVerified(dir)) openPack(dir); else verifyThenOpen(dir);
-        } else {
-            String shown = dir == null ? "that folder" : dir.getAbsolutePath();
-            web.evaluateJavascript("window.onPackRejected && onPackRejected(" + JSONObject.quote(shown) + ")", null);
+        // Keep access to the newly picked file only.
+        for (UriPermission p : cr.getPersistedUriPermissions()) {
+            if (!p.getUri().equals(uri)) {
+                try { cr.releasePersistableUriPermission(p.getUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+                catch (SecurityException ignored) { /* already gone */ }
+            }
         }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        notifySetupPage();
+        prefs.edit().putString(PREF_URI, uri.toString()).apply();
+        openOrCheck(uri, false);
     }
 
     @Override
@@ -348,13 +312,12 @@ public class MainActivity extends Activity {
         // The pack was moved, deleted or replaced while the app was in the background.
         PackSource open = server.pack();
         if (open != null && !open.stillValid()) {
-            prefs.edit().remove(PREF_VERIFIED).apply();
+
+            problem = "moved";
             showSetup();
-            File pack = findPack();
-            if (pack != null) verifyThenOpen(pack);
             return;
         }
-        notifySetupPage();
+        notifySetupPageState();
     }
 
     @Override
@@ -365,14 +328,6 @@ public class MainActivity extends Activity {
             web.evaluateJavascript("(function(v){v&&v.applySaveIfPending&&v.applySaveIfPending()})"
                 + "(window.vm&&vm.$localData&&vm.$localData.VM)", null);
         }
-    }
-
-    private void notifySetupPage() {
-        if (web == null || !onSetupPage) return;
-        File pack = findPack();
-        if (pack != null && isVerified(pack)) openPack(pack);
-        else if (pack != null) verifyThenOpen(pack);
-        else notifySetupPageState();
     }
 
     // ---------- navigation ----------
@@ -474,6 +429,7 @@ public class MainActivity extends Activity {
             web.destroy();
             web = null;
         }
+        closeOpenPack();
         super.onDestroy();
     }
 
@@ -488,13 +444,11 @@ public class MainActivity extends Activity {
         public String status() {
             if (!onSetupPage) return "{}";
             try {
-                File pack = findPack();
                 return new JSONObject()
-                    .put("hasAccess", hasFileAccess())
-                    .put("packPath", pack == null ? JSONObject.NULL : pack.getAbsolutePath())
-                    .put("isZip", pack != null && pack.isFile())
-                    .put("needsAllFilesAccess", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                    .put("hasPack", prefs.getString(PREF_URI, null) != null)
+                    .put("packName", packName == null ? JSONObject.NULL : packName)
                     .put("checking", checking)
+                    .put("problem", problem == null ? JSONObject.NULL : problem)
                     .put("fileCount", lastCount)
                     .put("expectedFiles", EXPECTED_FILES)
                     .toString();
@@ -504,23 +458,17 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void requestAccess() {
-            if (onSetupPage) runOnUiThread(MainActivity.this::requestFileAccess);
-        }
-
-        @JavascriptInterface
-        @SuppressWarnings("deprecation")
-        public void pickFolder() {
-            if (!onSetupPage) return;
-            runOnUiThread(() -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_PICK_FOLDER));
+        public void pickZip() {
+            if (onSetupPage) runOnUiThread(MainActivity.this::pickZip);
         }
 
         @JavascriptInterface
         public void recheck() {
             if (!onSetupPage) return;
             runOnUiThread(() -> {
-                File pack = findPack();
-                if (pack != null) verifyThenOpen(pack); else notifySetupPageState();
+                Uri pack = savedPack();
+                if (pack != null) openOrCheck(pack, false);
+                else { problem = null; notifySetupPageState(); }
             });
         }
 

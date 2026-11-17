@@ -1,12 +1,16 @@
 package uhc.android.reader;
 
 import java.io.BufferedInputStream;
+import java.io.Closeable;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 import java.util.zip.Inflater;
 import java.util.zip.InflaterInputStream;
 
@@ -38,6 +43,8 @@ abstract class PackSource {
     abstract String describe();
     /** False once the pack was moved, deleted or replaced since it was opened. */
     abstract boolean stillValid();
+    /** Releases open file handles; the source must not be used afterwards. */
+    void close() { }
 
     boolean looksLikePack() {
         return KIND_FILE.equals(kind("archive/data/mspa.json")) && KIND_FILE.equals(kind("storyfiles/hs2/00001.gif"));
@@ -48,9 +55,28 @@ abstract class PackSource {
         if (f == null || !f.exists()) return null;
         if (f.isDirectory()) return new Folder(f);
         if (f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) {
-            try { return new Zip(f); } catch (IOException | RuntimeException e) { return null; }
+            try { return Zip.of(f); } catch (IOException | RuntimeException e) { return null; }
         }
         return null;
+    }
+
+    /**
+     * Opens a zip pack from an already-open channel (on Android: a file the user picked, via a
+     * ParcelFileDescriptor). {@code owner} is closed with the source. Returns null if it isn't a
+     * complete, readable zip; {@code owner} is then closed too.
+     */
+    static PackSource openZip(FileChannel channel, String description, BooleanSupplier stillValid, Closeable owner) {
+        try {
+            return new Zip(channel, description, stillValid, owner);
+        } catch (IOException | RuntimeException e) {
+            closeQuietly(owner);
+            return null;
+        }
+    }
+
+    static void closeQuietly(Closeable c) {
+        if (c == null) return;
+        try { c.close(); } catch (IOException ignored) { /* nothing more to do */ }
     }
 
     static String clean(String rel) {
@@ -128,25 +154,41 @@ abstract class PackSource {
             }
         }
 
-        final File file;
-        private final long openedLength, openedModified;
+        /** One channel for the life of the source; positional reads are safe across threads. */
+        private final FileChannel ch;
+        private final String description;
+        private final BooleanSupplier valid;
+        private final Closeable owner;
         private final Map<String, Entry> files = new HashMap<>();
         private final Map<String, Map<String, Boolean>> dirs = new HashMap<>();
         private int visibleFiles = 0;
 
-        Zip(File file) throws IOException {
-            this.file = file;
-            this.openedLength = file.length();
-            this.openedModified = file.lastModified();
+        /** Opens a zip file by path (tests, the PC harness, and anything with direct file access). */
+        static Zip of(File file) throws IOException {
+            RandomAccessFile raf = new RandomAccessFile(file, "r");
+            long length = file.length(), modified = file.lastModified();
+            try {
+                return new Zip(raf.getChannel(), file.getAbsolutePath(),
+                    () -> file.isFile() && file.length() == length && file.lastModified() == modified, raf);
+            } catch (IOException | RuntimeException e) {
+                raf.close();
+                throw e;
+            }
+        }
+
+        Zip(FileChannel ch, String description, BooleanSupplier valid, Closeable owner) throws IOException {
+            this.ch = ch;
+            this.description = description;
+            this.valid = valid;
+            this.owner = owner;
             Map<String, Entry> raw = new HashMap<>();
             List<String> emptyDirs = new ArrayList<>();   // folder entries, so empty folders still exist
-            try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-                long len = raf.length();
+            {
+                long len = ch.size();
                 // End of central directory record: within the last 64 KiB + 22 bytes.
                 int tail = (int) Math.min(len, 65557);
                 byte[] buf = new byte[tail];
-                raf.seek(len - tail);
-                raf.readFully(buf);
+                readFully(len - tail, buf);
                 int eocd = -1;
                 for (int i = tail - 22; i >= 0; i--) {
                     if (u32(buf, i) == 0x06054b50L) { eocd = i; break; }
@@ -161,8 +203,7 @@ abstract class PackSource {
                     if (loc < 0 || u32(buf, loc) != 0x07064b50L) throw new IOException("Missing zip64 locator");
                     long z64 = u64(buf, loc + 8);
                     byte[] h = new byte[56];
-                    raf.seek(z64);
-                    raf.readFully(h);
+                    readFully(z64, h);
                     if (u32(h, 0) != 0x06064b50L) throw new IOException("Bad zip64 end record");
                     count = u64(h, 32);
                     cdSize = u64(h, 40);
@@ -170,8 +211,7 @@ abstract class PackSource {
                 }
                 if (cdSize > 64L * 1024 * 1024) throw new IOException("Central directory too large");
                 byte[] cd = new byte[(int) cdSize];
-                raf.seek(cdOffset);
-                raf.readFully(cd);
+                readFully(cdOffset, cd);
 
                 int p = 0;
                 for (long i = 0; i < count; i++) {
@@ -255,9 +295,17 @@ abstract class PackSource {
             return d == null ? null : Collections.unmodifiableMap(d);
         }
         @Override int countFiles() { return visibleFiles; }
-        @Override String describe() { return file.getAbsolutePath(); }
-        @Override boolean stillValid() {
-            return file.isFile() && file.length() == openedLength && file.lastModified() == openedModified;
+        @Override String describe() { return description; }
+        @Override boolean stillValid() { return ch.isOpen() && valid.getAsBoolean(); }
+        @Override void close() { closeQuietly(owner); }
+
+        /** Reads exactly {@code b.length} bytes at {@code pos}, without moving any shared position. */
+        private void readFully(long pos, byte[] b) throws IOException {
+            ByteBuffer bb = ByteBuffer.wrap(b);
+            while (bb.hasRemaining()) {
+                int n = ch.read(bb, pos + bb.position());
+                if (n < 0) throw new EOFException("zip ends early");
+            }
         }
 
         @Override InputStream open(String rel, long start, long len) throws IOException {
@@ -267,10 +315,10 @@ abstract class PackSource {
             if (start < 0 || start > e.size) throw new IOException("bad offset");
             if (e.method == 0) {
                 long n = len < 0 ? e.size - start : Math.min(len, e.size - start);
-                return buffered(new Bounded(new RafStream(file, data + start), Math.max(0, n)));
+                return buffered(new Bounded(new ChannelStream(ch, data + start), Math.max(0, n)));
             }
             if (e.method != 8) throw new IOException("Unsupported compression in zip: " + e.method);
-            InputStream in = new InflaterInputStream(new Bounded(new RafStream(file, data), e.compSize), new Inflater(true), 64 * 1024);
+            InputStream in = new InflaterInputStream(new Bounded(new ChannelStream(ch, data), e.compSize), new Inflater(true), 64 * 1024);
             long skip = start;
             while (skip > 0) {
                 long s = in.skip(skip);
@@ -282,13 +330,10 @@ abstract class PackSource {
 
         private long dataStart(Entry e) throws IOException {
             if (e.dataStart >= 0) return e.dataStart;
-            try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-                byte[] h = new byte[30];
-                raf.seek(e.localHeader);
-                raf.readFully(h);
-                if (u32(h, 0) != 0x04034b50L) throw new IOException("Bad local header");
-                e.dataStart = e.localHeader + 30 + u16(h, 26) + u16(h, 28);
-            }
+            byte[] h = new byte[30];
+            readFully(e.localHeader, h);
+            if (u32(h, 0) != 0x04034b50L) throw new IOException("Bad local header");
+            e.dataStart = e.localHeader + 30 + u16(h, 26) + u16(h, 28);
             return e.dataStart;
         }
 
@@ -299,14 +344,25 @@ abstract class PackSource {
 
     // ---------------------------------------------------------------------------------------------
 
-    /** InputStream over a file from a fixed offset, with its own file handle (safe across threads). */
-    private static final class RafStream extends InputStream {
-        private final RandomAccessFile raf;
-        RafStream(File f, long pos) throws IOException { raf = new RandomAccessFile(f, "r"); raf.seek(pos); }
-        @Override public int read() throws IOException { return raf.read(); }
-        @Override public int read(byte[] b, int off, int len) throws IOException { return raf.read(b, off, len); }
-        @Override public long skip(long n) throws IOException { raf.seek(raf.getFilePointer() + n); return n; }
-        @Override public void close() throws IOException { raf.close(); }
+    /**
+     * InputStream over a shared channel from a fixed offset. It keeps its own position and uses
+     * positional reads, so many can read the same zip at once; closing it leaves the channel open.
+     */
+    private static final class ChannelStream extends InputStream {
+        private final FileChannel ch;
+        private long pos;
+        ChannelStream(FileChannel ch, long pos) { this.ch = ch; this.pos = pos; }
+        @Override public int read() throws IOException {
+            byte[] one = new byte[1];
+            return read(one, 0, 1) < 0 ? -1 : one[0] & 0xFF;
+        }
+        @Override public int read(byte[] b, int off, int len) throws IOException {
+            if (len == 0) return 0;
+            int n = ch.read(ByteBuffer.wrap(b, off, len), pos);
+            if (n > 0) pos += n;
+            return n;
+        }
+        @Override public long skip(long n) { pos += n; return n; }
     }
 
     /** Reads at most {@code remaining} bytes from the wrapped stream. */
