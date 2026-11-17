@@ -148,6 +148,28 @@
     fn();
   }
 
+  /** Next page, as the reader bar's command: one next link is followed; several scroll to the choices. */
+  function goNext(vm) {
+    var links = currentNextLinks(vm);
+    if (links.length === 1) { navigate(function () { links[0].click(); }); return true; }
+    if (links.length > 1) {
+      var nav = activeTabEl(vm).querySelector('.pageNavigation');
+      if (nav) nav.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return true;
+    }
+    return false;
+  }
+  /** Previous page: the page's own "Go Back" link, else the reader's history. */
+  function goBack(vm) {
+    navigate(function () {
+      var tab = activeTabEl(vm);
+      var back = tab && tab.querySelector('.pageNavigation .goBack');
+      if (back) back.click();
+      else window.UHCShim.ipcRenderer.emit('TABS_HISTORY_BACK');
+    });
+    return true;
+  }
+
   function buildBar(vm) {
     var bar = document.createElement('nav');
     bar.id = 'uhcReaderBar';
@@ -166,24 +188,14 @@
 
     bar.querySelector('.uhc-next').addEventListener('click', function (e) {
       e.preventDefault();
-      var links = currentNextLinks(vm);
-      if (links.length === 1) navigate(function () { links[0].click(); });
-      else if (links.length > 1) {
-        var nav = activeTabEl(vm).querySelector('.pageNavigation');
-        if (nav) nav.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      goNext(vm);
     });
     bar.querySelector('.uhc-controls').addEventListener('click', function (e) {
       var btn = e.target.closest('button[data-act]');
       if (!btn) return;
       var act = btn.getAttribute('data-act');
       if (act === 'back') {
-        navigate(function () {
-          var tab = activeTabEl(vm);
-          var goBack = tab && tab.querySelector('.pageNavigation .goBack');
-          if (goBack) goBack.click();
-          else window.UHCShim.ipcRenderer.emit('TABS_HISTORY_BACK');
-        });
+        goBack(vm);
       } else if (act === 'home') {
         vm.$pushURL('/');
       } else if (act === 'save') {
@@ -299,7 +311,10 @@
   }
   function syncNative(tabFrame, bar) {
     if (!NATIVE) return;
-    if (NATIVE.setChrome && tabFrame) {
+    if (NATIVE.setChrome && viewerOpen()) {
+      // The full-size viewer is black edge to edge, with the dark bar at the bottom.
+      setOnce('chrome', '#000000#262626', function () { NATIVE.setChrome('#000000', '#262626'); });
+    } else if (NATIVE.setChrome && tabFrame) {
       // Status bar: the theme's outer frame colour; navigation bar: the reader bar's colour.
       var top = toHex(getComputedStyle(tabFrame).backgroundColor) || toHex(getComputedStyle(document.body).backgroundColor);
       var bottom = toHex(getComputedStyle(bar).backgroundColor);
@@ -424,6 +439,7 @@
   window.UHCMobile = {
     back: function () {
       if (jump && jump.open) { jump.close(); return true; }   // back closes the go-to-page box first
+      if (viewerOpen()) { closeViewer(); return true; }        // and the full-size viewer
       var vm = window.vm;
       if (!vm || !vm.$localData) return false;
       var td = vm.$localData.tabData, tab = td.tabs[td.activeTabKey];
@@ -433,6 +449,332 @@
     },
     openInApp: openInApp
   };
+
+  // ---------- reading gestures ----------
+  // Conventions from comic and e-book readers (Kindle, Mihon, Komic):
+  //  - swipe left = next page, swipe right = previous, with a direction lock so scrolling never turns a page;
+  //  - tap zones only on the panel image, not the text (long-scrolling pages turn whole-screen zones off):
+  //    left third = back, right third = next, middle = open the panel full size;
+  //  - full-size viewer: opens at original size (the pixels the website showed), pinch to zoom, drag to pan,
+  //    double-tap to switch fit/original, back or ✕ to close.
+  // Each is a switch in UHC's Settings (Application Theme section); stored in localStorage.
+
+  var GESTURE_KEY = 'uhc-gestures';
+  var GESTURE_DEFAULTS = { swipe: true, tapTurn: true, tapZoom: true, bigFirst: false };
+  function gestures() {
+    var saved = {};
+    try { saved = JSON.parse(storage(GESTURE_KEY) || '{}') || {}; } catch (e) { saved = {}; }
+    var out = {};
+    Object.keys(GESTURE_DEFAULTS).forEach(function (k) { out[k] = k in saved ? !!saved[k] : GESTURE_DEFAULTS[k]; });
+    return out;
+  }
+  function setGesture(key, on) {
+    var g = gestures();
+    g[key] = !!on;
+    storage(GESTURE_KEY, JSON.stringify(g));
+  }
+
+  function isStoryPage(vm) {
+    var tab = activeTabEl(vm);
+    return !!(tab && tab.querySelector('.pageNavigation'));
+  }
+  function pageZoomed() {
+    return !!(window.visualViewport && window.visualViewport.scale > 1.01);
+  }
+  /** Things a gesture must never start on: Flash/video, form fields, the bar, dialogs, the viewer. */
+  function gestureBlocked(target) {
+    return !target || !target.closest ||
+      !!target.closest('iframe, video, embed, object, ruffle-player, ruffle-object, ruffle-embed, input, textarea, select, ' +
+        'button, dialog, #uhcReaderBar, #uhcViewer, .bookmarkWrapper, .uhc-gesture-skip');
+  }
+
+  // A short arrow at the screen edge confirms a swipe was understood.
+  var swipeHint = null;
+  function flashSwipeHint(dir) {
+    if (!swipeHint) {
+      swipeHint = document.createElement('div');
+      swipeHint.id = 'uhcSwipeHint';
+      swipeHint.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(swipeHint);
+    }
+    swipeHint.textContent = dir > 0 ? '›' : '‹';
+    swipeHint.className = dir > 0 ? 'next' : 'back';
+    void swipeHint.offsetWidth;   // restart the animation
+    swipeHint.classList.add('show');
+  }
+
+  var suppressClickUntil = 0;
+  function installSwipe(vm) {
+    var start = null;   // {x, y, t, lock}
+    document.addEventListener('touchstart', function (e) {
+      start = null;
+      if (!gestures().swipe || e.touches.length !== 1 || viewerOpen() || pageZoomed()) return;
+      if (gestureBlocked(e.target) || !isStoryPage(vm)) return;
+      var t = e.touches[0];
+      start = { x: t.clientX, y: t.clientY, t: Date.now(), lock: null };
+    }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      if (!start) return;
+      if (e.touches.length !== 1) { start = null; return; }   // a second finger means pinch, not swipe
+      var t = e.touches[0], dx = t.clientX - start.x, dy = t.clientY - start.y;
+      start.dx = dx;   // the end event doesn't reliably carry the final position; keep the last one
+      start.dy = dy;
+      if (!start.lock && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
+        start.lock = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'x' : 'y';
+      }
+    }, { passive: true });
+    document.addEventListener('touchend', function () {
+      var s = start;
+      start = null;
+      if (!s || s.lock !== 'x') return;
+      var dx = s.dx || 0, dy = s.dy || 0;
+      var far = Math.abs(dx) > Math.max(64, window.innerWidth * 0.18);
+      var quick = Date.now() - s.t < 900;
+      if (!far || !quick || Math.abs(dy) > Math.abs(dx)) return;
+      var sel = window.getSelection && String(window.getSelection());
+      if (sel) return;   // the reader was selecting text
+      suppressClickUntil = Date.now() + 400;
+      if (dx < 0) { if (goNext(vm)) flashSwipeHint(1); } else { goBack(vm); flashSwipeHint(-1); }
+    }, { passive: true });
+    document.addEventListener('touchcancel', function () { start = null; }, { passive: true });
+  }
+
+  /** The panel image a tap landed on (a still/animated GIF or PNG, not Flash), or null. */
+  function tappedPanel(target) {
+    var img = target && target.closest && target.closest('.pageBody .media img, .pageBody .mediaContent > img');
+    if (!img || img.closest('a')) return null;   // panels that are links keep their link
+    return img;
+  }
+  function installPanelTaps(vm) {
+    // Capture phase, so the decision is made before UHC's own handlers see the click.
+    document.addEventListener('click', function (e) {
+      // Swallow a real tap that lands right after a swipe, never our own programmatic clicks (goNext
+      // follows the page's next link with link.click(), which isn't trusted).
+      if (e.isTrusted && Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
+      var img = tappedPanel(e.target);
+      if (!img || viewerOpen() || pageZoomed()) return;
+      var g = gestures();
+      if (!g.tapTurn && !g.tapZoom) return;
+      var r = img.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width;
+      var zone = !g.tapTurn ? 'middle' : fx < 1 / 3 ? 'left' : fx > 2 / 3 ? 'right' : 'middle';
+      if (zone === 'middle' && !g.tapZoom) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (zone === 'left') { goBack(vm); flashSwipeHint(-1); }
+      else if (zone === 'right') { if (goNext(vm)) flashSwipeHint(1); }
+      else openViewer(img, 'original');
+    }, true);
+  }
+
+  // ---------- full-size panel viewer ----------
+
+  var viewer = null, vstate = null;
+  var requestRefresh = function () {};   // set once the app is ready; updates bar colours etc.
+  function viewerOpen() { return !!(viewer && viewer.classList.contains('open')); }
+
+  function buildViewer() {
+    var v = document.createElement('div');
+    v.id = 'uhcViewer';
+    v.setAttribute('role', 'dialog');
+    v.setAttribute('aria-modal', 'true');
+    v.setAttribute('aria-label', 'Panel at full size');
+    v.innerHTML =
+      '<div class="uhc-v-stage"><img class="uhc-v-img" alt=""></div>' +
+      '<div class="uhc-v-bar">' +
+        '<button type="button" class="uhc-v-mode" aria-label="Switch between fit to screen and original size"></button>' +
+        '<span class="uhc-v-tip">Pinch to zoom, drag to move, double-tap to switch</span>' +
+        '<button type="button" class="uhc-v-close" aria-label="Close">✕</button>' +
+      '</div>';
+    document.body.appendChild(v);
+    v.querySelector('.uhc-v-close').addEventListener('click', closeViewer);
+    v.querySelector('.uhc-v-mode').addEventListener('click', function () {
+      setMode(vstate.mode === 'fit' ? 'original' : 'fit');
+    });
+    installViewerGestures(v.querySelector('.uhc-v-stage'));
+    window.addEventListener('resize', function () { if (viewerOpen()) setMode(vstate.mode); });
+    return v;
+  }
+
+  function stageSize() {
+    var st = viewer.querySelector('.uhc-v-stage');
+    return { w: st.clientWidth, h: st.clientHeight };
+  }
+  function fitScale() {
+    var s = stageSize();
+    return Math.min(s.w / vstate.nw, s.h / vstate.nh);
+  }
+  /** Keeps the image on screen: centred when smaller than the stage, edges never pulled inside it. */
+  function clampPan() {
+    var s = stageSize(), w = vstate.nw * vstate.scale, h = vstate.nh * vstate.scale;
+    vstate.x = w <= s.w ? (s.w - w) / 2 : Math.min(0, Math.max(s.w - w, vstate.x));
+    vstate.y = h <= s.h ? (s.h - h) / 2 : Math.min(0, Math.max(s.h - h, vstate.y));
+  }
+  function render() {
+    clampPan();
+    var img = viewer.querySelector('.uhc-v-img');
+    img.style.transform = 'translate(' + vstate.x + 'px,' + vstate.y + 'px) scale(' + vstate.scale + ')';
+    // Pixel art stays crisp when enlarged; smooth when shrunk.
+    img.style.imageRendering = vstate.scale > 1.01 ? 'pixelated' : 'auto';
+    var btn = viewer.querySelector('.uhc-v-mode');
+    btn.textContent = vstate.mode === 'fit' ? 'Original size' : 'Fit screen';
+  }
+  /** Zoom to {@code scale}, keeping the image point under (px, py) on the stage still. */
+  function zoomAt(scale, px, py) {
+    var min = Math.min(fitScale(), 1), max = Math.max(4, fitScale() * 2);
+    scale = Math.max(min, Math.min(max, scale));
+    var ix = (px - vstate.x) / vstate.scale, iy = (py - vstate.y) / vstate.scale;
+    vstate.scale = scale;
+    vstate.x = px - ix * scale;
+    vstate.y = py - iy * scale;
+    render();
+  }
+  function setMode(mode, px, py) {
+    vstate.mode = mode;
+    if (px === undefined) {
+      // Original size starts at the top-left corner (where the panel begins); fit is centred.
+      vstate.scale = mode === 'fit' ? fitScale() : 1;
+      vstate.x = 0;
+      vstate.y = 0;
+      render();
+    } else {
+      zoomAt(mode === 'fit' ? fitScale() : 1, px, py);
+    }
+  }
+
+  function openViewer(img, mode) {
+    if (!viewer) viewer = buildViewer();
+    var vimg = viewer.querySelector('.uhc-v-img');
+    vimg.src = img.currentSrc || img.src;   // same URL: animated GIFs keep playing
+    vimg.alt = img.alt || '';
+    vstate = { nw: img.naturalWidth || img.width, nh: img.naturalHeight || img.height, scale: 1, x: 0, y: 0, mode: mode };
+    vimg.style.width = vstate.nw + 'px';
+    vimg.style.height = vstate.nh + 'px';
+    viewer.classList.add('open');
+    document.documentElement.classList.add('uhc-viewer-open');
+    setMode(mode);
+    viewer.querySelector('.uhc-v-close').focus({ preventScroll: true });
+    requestRefresh();
+  }
+  function closeViewer() {
+    if (!viewerOpen()) return;
+    viewer.classList.remove('open');
+    document.documentElement.classList.remove('uhc-viewer-open');
+    viewer.querySelector('.uhc-v-img').removeAttribute('src');
+    requestRefresh();
+  }
+
+  function installViewerGestures(stage) {
+    var pts = new Map(), pinch = null, pan = null, lastTap = null;
+    stage.addEventListener('pointerdown', function (e) {
+      stage.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      var r = stage.getBoundingClientRect();
+      if (pts.size === 2) {
+        var a = Array.from(pts.values());
+        pinch = { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), scale: vstate.scale,
+                  cx: (a[0].x + a[1].x) / 2 - r.left, cy: (a[0].y + a[1].y) / 2 - r.top };
+        pan = null;
+      } else if (pts.size === 1) {
+        pan = { x: e.clientX, y: e.clientY, ox: vstate.x, oy: vstate.y, moved: false };
+      }
+    });
+    stage.addEventListener('pointermove', function (e) {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size === 2) {
+        var a = Array.from(pts.values());
+        var d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+        zoomAt(pinch.scale * d / pinch.d, pinch.cx, pinch.cy);
+        vstate.mode = Math.abs(vstate.scale - 1) < 0.02 ? 'original' : Math.abs(vstate.scale - fitScale()) < 0.02 ? 'fit' : 'free';
+        render();
+      } else if (pan) {
+        var dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+        if (Math.abs(dx) + Math.abs(dy) > 6) pan.moved = true;
+        vstate.x = pan.ox + dx;
+        vstate.y = pan.oy + dy;
+        render();
+      }
+    });
+    function end(e) {
+      if (!pts.has(e.pointerId)) return;
+      var wasPan = pan && !pan.moved && pts.size === 1;
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (pts.size === 0) pan = null;
+      if (!wasPan || e.type === 'pointercancel') return;
+      // A tap: two quick taps close together switch between fit and original at that point.
+      var now = Date.now(), r = stage.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+      if (lastTap && now - lastTap.t < 320 && Math.hypot(px - lastTap.x, py - lastTap.y) < 40) {
+        setMode(vstate.mode === 'original' ? 'fit' : 'original', px, py);
+        lastTap = null;
+      } else {
+        lastTap = { t: now, x: px, y: py };
+      }
+    }
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+  }
+
+  // ---------- big panels full size first (optional) ----------
+  // When a page's panel had to shrink a lot to fit the phone (wide Act 5-6 panels), open it at
+  // original size first; closing the viewer shows the page as usual. Once per page visit.
+
+  var autoOpenedFor = null;
+  function maybeOpenBigFirst(vm, tab) {
+    if (!tab || !gestures().bigFirst || viewerOpen()) return;
+    var url = activeUrl(vm);
+    if (autoOpenedFor === url) return;
+    var img = tab.querySelector('.pageBody .media img');
+    if (!img || !img.complete || !img.naturalWidth) return;
+    var room = (img.closest('.media').parentElement || img).clientWidth;
+    if (!room) return;
+    autoOpenedFor = url;
+    if (img.naturalWidth > room / 0.75) openViewer(img, 'original');
+  }
+
+  // A one-time tip on the first story page.
+  function maybeShowGestureTip(vm) {
+    if (storage('uhc-gesture-tip') || !isStoryPage(vm)) return;
+    var g = gestures();
+    if (!g.swipe && !g.tapTurn && !g.tapZoom) return;
+    storage('uhc-gesture-tip', '1');
+    var tip = document.createElement('div');
+    tip.id = 'uhcGestureTip';
+    tip.setAttribute('role', 'status');
+    tip.textContent = 'Tip: swipe, or tap the sides of a panel, to turn pages. Tap the middle of a panel to see it full size.';
+    tip.addEventListener('click', function () { tip.remove(); });
+    document.body.appendChild(tip);
+    setTimeout(function () { tip.classList.add('gone'); setTimeout(function () { tip.remove(); }, 400); }, 6500);
+  }
+
+  // ---------- gesture switches in UHC's Settings page ----------
+
+  var GESTURE_CHOICES = [
+    ['swipe', 'Swipe to turn pages', 'Swipe left for the next page, right for the previous one.'],
+    ['tapTurn', 'Tap panel sides to turn pages', 'Tap the left or right third of a panel to go back or forward.'],
+    ['tapZoom', 'Tap a panel to see it full size', 'Tap the middle of a panel to open it at its original size; pinch to zoom, drag to move.'],
+    ['bigFirst', 'Show big panels full size first', 'When a panel had to shrink a lot to fit your screen, open it at original size before you read the page.']
+  ];
+  function addGestureChoices(scope) {
+    if (!scope) return;
+    var anchor = scope.querySelector('.settings.themes .uhc-theme-choice');
+    if (!anchor || scope.querySelector('.uhc-gesture-choice')) return;
+    var scopeAttrs = Array.prototype.filter.call(anchor.attributes, function (a) { return /^data-v-/.test(a.name); })
+      .map(function (a) { return a.name + '=""'; }).join(' ');
+    var g = gestures();
+    var html = '<dt ' + scopeAttrs + ' class="uhc-gesture-choice uhc-theme-title">Reading gestures</dt>';
+    GESTURE_CHOICES.forEach(function (c) {
+      html += '<dt ' + scopeAttrs + ' class="uhc-gesture-choice"><label ' + scopeAttrs + '><input ' + scopeAttrs +
+        ' type="checkbox" name="uhcGesture" value="' + c[0] + '"' + (g[c[0]] ? ' checked' : '') + '>' + c[1] + '</label></dt>' +
+        '<dd ' + scopeAttrs + ' class="settingDesc uhc-gesture-choice">' + c[2] + '</dd>';
+    });
+    // After the last light/dark choice
+    var choices = scope.querySelectorAll('.settings.themes .uhc-theme-choice');
+    choices[choices.length - 1].insertAdjacentHTML('afterend', html);
+    anchor.parentElement.addEventListener('change', function (e) {
+      if (e.target.name === 'uhcGesture') setGesture(e.target.value, e.target.checked);
+    });
+  }
 
   // ---------- readable chat colours on dark backgrounds ----------
   // Pesterlog and dialogue colours were picked for MSPA's white page; on UHC's Dark theme (or any dark
@@ -530,6 +872,8 @@
 
   whenAppReady(function (vm) {
     var bar = buildBar(vm);
+    installSwipe(vm);
+    installPanelTaps(vm);
     followTheme(vm);
 
     var pending = false;
@@ -544,6 +888,9 @@
         fixChatColors(tab);
         startAutoplay(tab);
         addThemeChoice(vm, tab);
+        addGestureChoices(tab);
+        maybeOpenBigFirst(vm, tab);
+        maybeShowGestureTip(vm);
         updateBar(vm, bar);
       });
     }
@@ -551,7 +898,8 @@
     new MutationObserver(refresh).observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
     document.addEventListener('load', function (e) { if (e.target && e.target.tagName === 'IMG') refresh(); }, true);
     window.addEventListener('resize', refresh);
-    vm.$watch(function () { return activeUrl(vm); }, refresh);
+    vm.$watch(function () { return activeUrl(vm); }, function () { closeViewer(); refresh(); });
+    requestRefresh = refresh;
     vm.$watch(function () { return vm.$localData.settings.themeOverride; }, refresh);
     refresh();
     root.classList.add('uhc-ready');
