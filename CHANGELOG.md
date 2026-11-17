@@ -2,6 +2,18 @@
 
 Versions are `2.8.1-android.N`: the UHC release it runs, then this port's build number.
 
+## 2.8.1-android.10
+
+### Changed
+- Tapping the middle of a panel opens it fitted to the screen (the whole panel, as large as it fits).
+  Double-tap or **Original size** shows it at the website's pixel size. "Show big panels full size first"
+  still opens at original size.
+
+### Fixed
+- Some panels (page 204, for one) showed at full width, cropped on both sides, instead of fitting the
+  screen. When UHC reused a panel element between pages it cleared the fit, and the app wrongly thought
+  it was still applied. It now checks.
+
 ## 2.8.1-android.9
 
 ### New
