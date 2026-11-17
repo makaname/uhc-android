@@ -23,8 +23,8 @@ android {
         applicationId 'uhc.android.reader'
         minSdk 26
         targetSdk 35
-        versionCode ciVersionCode ? ciVersionCode.toInteger() : 7
-        versionName ciVersionName ?: '2.8.1-android.7'
+        versionCode ciVersionCode ? ciVersionCode.toInteger() : 8
+        versionName ciVersionName ?: '2.8.1-android.8'
     }
 
     signingConfigs {

@@ -2,9 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- No permissions at all. The reader picks the asset pack zip once in Android's file picker,
-         which grants lasting read access to that one file. There is deliberately no INTERNET
-         permission either: everything the WebView loads is served in-process by PackServer. -->
+    <!-- The reader picks the asset pack zip once in Android's file picker, which grants lasting read
+         access to that one file; no storage permission is needed.
+         INTERNET is only for Bandcamp's embedded player on UHC's Music pages. PackServer refuses every
+         other remote host (403), so nothing else leaves the phone; see PackServer.isAllowedRemote. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="@string/app_name"

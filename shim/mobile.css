@@ -249,3 +249,7 @@ html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 4px; }
 @media (prefers-reduced-motion: reduce) {
   html.uhc-phone * { scroll-behavior: auto !important; }
 }
+
+/* Music pages: Bandcamp's player stays inside the page width */
+html.uhc-phone iframe.bandcamp { width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
+html.uhc-phone .trackPage .info { width: auto !important; max-width: 100% !important; }
