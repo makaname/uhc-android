@@ -1,0 +1,80 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to publish releases on version tags
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Cache the unpacked UHC bundle
+        uses: actions/cache@v4
+        with:
+          path: vendor/uhc-2.8.1-app
+          key: uhc-2.8.1-app-${{ hashFiles('tools/fetch-uhc.mjs') }}
+
+      - name: Fetch the official UHC 2.8.1 bundle
+        run: |
+          command -v 7z || (sudo apt-get update && sudo apt-get install -y p7zip-full)
+          node tools/fetch-uhc.mjs
+
+      # The permanent signing key, so CI builds install over local ones. Absent on fork PRs -> debug key.
+      - name: Set up signing
+        env:
+          KEYSTORE_B64: ${{ secrets.UHC_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.UHC_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/uhc.jks"
+            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=uhc\nkeyPassword=%s\n' \
+              "$RUNNER_TEMP/uhc.jks" "$KEYSTORE_PASSWORD" "$KEYSTORE_PASSWORD" > "$RUNNER_TEMP/uhc-signing.properties"
+            echo "UHC_SIGNING_PROPERTIES=$RUNNER_TEMP/uhc-signing.properties" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No signing key secrets; building with the debug key."
+          fi
+
+      # Tag v2.8.1-android.N -> versionName 2.8.1-android.N, versionCode N
+      - name: Version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          echo "UHC_VERSION_NAME=$V" >> "$GITHUB_ENV"
+          echo "UHC_VERSION_CODE=${V##*.}" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uhc-android-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK="UHC-Android-${GITHUB_REF_NAME}.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$APK"
+          gh release create "$GITHUB_REF_NAME" "$APK" --title "$GITHUB_REF_NAME" --generate-notes
