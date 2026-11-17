@@ -562,7 +562,7 @@
       e.stopPropagation();
       if (zone === 'left') { goBack(vm); flashSwipeHint(-1); }
       else if (zone === 'right') { if (goNext(vm)) flashSwipeHint(1); }
-      else openViewer(img, 'original');
+      else openViewer(img, 'fit');   // fit to screen first; double-tap or the button for original size
     }, true);
   }
 
@@ -752,7 +752,7 @@
   var GESTURE_CHOICES = [
     ['swipe', 'Swipe to turn pages', 'Swipe left for the next page, right for the previous one.'],
     ['tapTurn', 'Tap panel sides to turn pages', 'Tap the left or right third of a panel to go back or forward.'],
-    ['tapZoom', 'Tap a panel to see it full size', 'Tap the middle of a panel to open it at its original size; pinch to zoom, drag to move.'],
+    ['tapZoom', 'Tap a panel to see it full size', 'Tap the middle of a panel to open it large, fitted to your screen; double-tap for original size, pinch to zoom, drag to move.'],
     ['bigFirst', 'Show big panels full size first', 'When a panel had to shrink a lot to fit your screen, open it at original size before you read the page.']
   ];
   function addGestureChoices(scope) {
