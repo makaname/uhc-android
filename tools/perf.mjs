@@ -66,8 +66,11 @@ async function waitFor(ev, expr, timeoutMs = 30000) {
 // Put the reader on the start page so the cold start restores straight into a story page.
 {
   const { ws, ev } = await connect();
+  await waitFor(ev, `!!(window.vm && vm.$localData)`);
   await ev(`(vm.$pushURL(${JSON.stringify(START_PAGE)}), 1)`);
-  await sleep(1500);
+  // UHC saves its tabs after a 1 s debounce; wait until the start page is on disk.
+  await waitFor(ev, `JSON.parse(localStorage.getItem('uhc-store:config')).tabData.tabs[vm.$localData.tabData.activeTabKey].url === ${JSON.stringify(START_PAGE)}`);
+  await sleep(3000);   // the WebView writes localStorage to disk a moment later
   ws.close();
 }
 
@@ -85,6 +88,7 @@ for (let run = 0; run < RUNS; run++) {
   // Page turns through the reader bar
   await sleep(500);
   for (let i = 0; i < TURNS; i++) {
+    await sleep(300);   // mobile.js ignores a second tap within 250 ms (accidental double taps)
     const before = await ev(`vm.$localData.tabData.tabs[vm.$localData.tabData.activeTabKey].url`);
     const tTap = await ev(`(document.querySelector('#uhcReaderBar .uhc-next').click(), performance.timeOrigin + performance.now())`);
     await waitFor(ev, `vm.$localData.tabData.tabs[vm.$localData.tabData.activeTabKey].url !== ${JSON.stringify(before)}`);

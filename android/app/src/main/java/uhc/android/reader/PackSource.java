@@ -1,5 +1,6 @@
 package uhc.android.reader;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FilterInputStream;
@@ -95,7 +96,7 @@ abstract class PackSource {
                 in.close();
                 throw e;
             }
-            return len < 0 ? in : new Bounded(in, len);
+            return buffered(len < 0 ? in : new Bounded(in, len));
         }
         @Override int countFiles() {
             int n = 0;
@@ -266,7 +267,7 @@ abstract class PackSource {
             if (start < 0 || start > e.size) throw new IOException("bad offset");
             if (e.method == 0) {
                 long n = len < 0 ? e.size - start : Math.min(len, e.size - start);
-                return new Bounded(new RafStream(file, data + start), Math.max(0, n));
+                return buffered(new Bounded(new RafStream(file, data + start), Math.max(0, n)));
             }
             if (e.method != 8) throw new IOException("Unsupported compression in zip: " + e.method);
             InputStream in = new InflaterInputStream(new Bounded(new RafStream(file, data), e.compSize), new Inflater(true), 64 * 1024);
@@ -276,7 +277,7 @@ abstract class PackSource {
                 if (s <= 0) break;
                 skip -= s;
             }
-            return len < 0 ? in : new Bounded(in, len);
+            return buffered(len < 0 ? in : new Bounded(in, len));
         }
 
         private long dataStart(Entry e) throws IOException {
@@ -309,6 +310,14 @@ abstract class PackSource {
     }
 
     /** Reads at most {@code remaining} bytes from the wrapped stream. */
+    /**
+     * The WebView pulls intercepted responses in small reads; a 64 KiB buffer turns those into few
+     * file reads (mspa.json, 10 MB, loads in about half the time).
+     */
+    static InputStream buffered(InputStream in) {
+        return new BufferedInputStream(in, 64 * 1024);
+    }
+
     static final class Bounded extends FilterInputStream {
         private long remaining;
         Bounded(InputStream in, long len) { super(in); remaining = len; }

@@ -357,6 +357,16 @@ public class MainActivity extends Activity {
         notifySetupPage();
     }
 
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // UHC saves reading progress 1 s after each page turn; save now, in case Android ends the app.
+        if (web != null && !onSetupPage) {
+            web.evaluateJavascript("(function(v){v&&v.applySaveIfPending&&v.applySaveIfPending()})"
+                + "(window.vm&&vm.$localData&&vm.$localData.VM)", null);
+        }
+    }
+
     private void notifySetupPage() {
         if (web == null || !onSetupPage) return;
         File pack = findPack();
