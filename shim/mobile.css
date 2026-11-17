@@ -45,6 +45,8 @@ html.uhc-phone { -webkit-tap-highlight-color: transparent; }
 
 /* ---------- story page: full width, panels fit the screen ---------- */
 html.uhc-phone .pageBody { min-width: 0 !important; width: 100% !important; }
+/* Special Act 6 page frames ([S] GAME OVER etc.) are a fixed 950px */
+html.uhc-phone .A6A6 { width: 100% !important; min-width: 0 !important; }
 html.uhc-phone .pageBody .pageFrame {
   width: 100% !important;
   max-width: 100% !important;

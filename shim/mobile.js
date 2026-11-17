@@ -58,9 +58,14 @@
   // (re-measuring means clearing zoom, which forces a layout and can flicker).
   var fitted = new WeakMap();
   function mediaKey(m, avail) {
-    var imgs = m.getElementsByTagName('img'), done = 0;
-    for (var i = 0; i < imgs.length; i++) if (imgs[i].complete) done++;
-    return avail + ':' + m.children.length + ':' + done + ':' + (m.firstElementChild ? m.firstElementChild.tagName : '');
+    // Vue reuses elements between pages (a 650px Flash iframe becomes a 950px one), so the key
+    // includes each child's own width; offsetWidth is not affected by the zoom on .media.
+    var key = String(avail);
+    for (var c = 0; c < m.children.length; c++) {
+      var el = m.children[c];
+      key += ':' + el.tagName + el.offsetWidth + (el.tagName === 'IMG' ? (el.complete ? 'c' + el.naturalWidth : 'p') : '');
+    }
+    return key;
   }
   function fitMedia(scope) {
     if (!scope || !root.classList.contains('uhc-phone')) return;
@@ -77,6 +82,51 @@
       var z = Math.min(1, avail / nat);
       if (z < 0.999) m.style.zoom = String(z);
       fitted.set(m, key);
+    }
+    // Some special pages ([S] GAME OVER and other Act 6 pages) put the Flash straight into
+    // .mediaContent without a .media wrapper; zoom the embed itself.
+    var bare = scope.querySelectorAll('.pageBody .mediaContent > iframe.mediaembed, .pageBody .mediaContent > video.mediaembed');
+    for (var j = 0; j < bare.length; j++) {
+      var e = bare[j];
+      var room = e.parentElement.clientWidth, w = e.offsetWidth;
+      if (!room || !w) continue;
+      var k = room + ':' + w;
+      if (fitted.get(e) === k) continue;
+      var zz = Math.min(1, room / w);
+      e.style.zoom = zz < 0.999 ? String(zz) : '';
+      fitted.set(e, k);
+    }
+    // Fully custom pages ([S] Collide, [S] Act 7, ...) have their own fixed-width layout:
+    // scale any block that is still wider than the screen as a whole.
+    var bodies = scope.querySelectorAll('.pageBody');
+    for (var b = 0; b < bodies.length; b++) {
+      var body = bodies[b], room2 = body.clientWidth;
+      if (!room2) continue;
+      for (var c = 0; c < body.children.length; c++) {
+        var blk = body.children[c];
+        if (blk.classList.contains('pageFrame') || blk.id === 'uhcReaderBar') continue;
+        var bw = Math.max(blk.offsetWidth, blk.scrollWidth);
+        var bk = room2 + ':' + bw;
+        if (fitted.get(blk) === bk) continue;
+        var bz = bw > room2 + 2 ? room2 / bw : 1;
+        blk.style.zoom = bz < 0.999 ? String(bz) : '';
+        fitted.set(blk, bk);
+      }
+    }
+  }
+
+  // Autoplay videos (the Dark theme's Home logo, some pages) can be left paused by the WebView.
+  // Start each one once; a video the reader paused afterwards stays paused.
+  var autoplayed = new WeakSet();
+  function startAutoplay(scope) {
+    if (!scope) return;
+    var vids = scope.querySelectorAll('video[autoplay]');
+    for (var i = 0; i < vids.length; i++) {
+      var v = vids[i];
+      if (autoplayed.has(v) || !v.paused) continue;
+      autoplayed.add(v);
+      var p = v.play();
+      if (p && p.catch) p.catch(function () { /* not allowed or no data yet */ });
     }
   }
 
@@ -181,7 +231,8 @@
     });
 
     var tabFrame = activeTabEl(vm);
-    var dark = !!(tabFrame && /\bdark\b/.test(tabFrame.className));
+    // Pages with their own theme (Cascade, Act 6 pages) drop the "dark" class; the bar keeps the reader's theme.
+    var dark = !!(tabFrame && /\bdark\b/.test(tabFrame.className)) || vm.$localData.settings.themeOverride === 'dark';
     setOnce('theme', dark ? 'dark' : 'light', function (v) { root.setAttribute('data-uhc-theme', v); });
     setOnce('barH', bar.offsetHeight, function (v) { root.style.setProperty('--uhc-bar-h', v + 'px'); });
     syncNative(tabFrame, bar);
@@ -203,7 +254,7 @@
       if (top && bottom) setOnce('chrome', top + bottom, function () { NATIVE.setChrome(top, bottom); });
     }
     if (NATIVE.setKeepScreenOn) {
-      var playing = !!(tabFrame && tabFrame.querySelector('ruffle-player, ruffle-embed, ruffle-object, .pageBody video, .pageBody embed, .pageBody object'));
+      var playing = !!(tabFrame && tabFrame.querySelector('.pageBody iframe.mediaembed, .pageBody video, ruffle-player, ruffle-embed, ruffle-object'));
       setOnce('awake', playing, function (v) { NATIVE.setKeepScreenOn(v); });
     }
   }
@@ -343,6 +394,7 @@
         applyPhoneClass();
         var tab = activeTabEl(vm);
         fitMedia(tab);
+        startAutoplay(tab);
         addThemeChoice(vm, tab);
         updateBar(vm, bar);
       });
