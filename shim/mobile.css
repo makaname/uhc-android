@@ -10,6 +10,7 @@
   --uhc-bar-edge: #535353;
   --uhc-bar-ink: #000;
   --uhc-bar-muted: #333;
+  --uhc-bar-press: rgba(0, 0, 0, 0.12);
   --uhc-next-bg: #eeeeee;
   --uhc-next-border: #8a8a8a;
   --uhc-link: #0000ee;
@@ -19,7 +20,8 @@
   --uhc-bar-bg: #262626;
   --uhc-bar-edge: #000;
   --uhc-bar-ink: #fff;
-  --uhc-bar-muted: hsla(0, 0%, 100%, 0.6);
+  --uhc-bar-muted: hsla(0, 0%, 100%, 0.7);
+  --uhc-bar-press: rgba(255, 255, 255, 0.12);
   --uhc-next-bg: #111;
   --uhc-next-border: #363636;
   --uhc-link: #59f;
@@ -38,9 +40,13 @@ html.uhc-phone .tabFrame {
   box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
 }
+/* No grey tap flash on links and buttons; pressed states are styled instead */
+html.uhc-phone { -webkit-tap-highlight-color: transparent; }
 
 /* ---------- story page: full width, panels fit the screen ---------- */
 html.uhc-phone .pageBody { min-width: 0 !important; width: 100% !important; }
+/* Special Act 6 page frames ([S] GAME OVER etc.) are a fixed 950px */
+html.uhc-phone .A6A6 { width: 100% !important; min-width: 0 !important; }
 html.uhc-phone .pageBody .pageFrame {
   width: 100% !important;
   max-width: 100% !important;
@@ -79,13 +85,14 @@ html.uhc-phone .pageBody .textContent img,
 html.uhc-phone .pageBody .textContent video { max-width: 100% !important; height: auto !important; }
 html.uhc-phone .pageBody .log { width: auto !important; margin-left: 0 !important; margin-right: 0 !important; }
 html.uhc-phone .pageBody .logContent { overflow-wrap: anywhere; }
-html.uhc-phone .pageBody .logButton { min-height: 36px; padding: 6px 14px; }
+html.uhc-phone .pageBody .logButton { min-height: 44px; padding: 8px 14px; }
 
 /* The next command lives in the reader bar; keep the in-page links but give them room */
 html.uhc-phone .pageBody .pageNavigation { width: 100% !important; }
 html.uhc-phone .pageBody .nextArrow { font-size: 18px !important; }
+html.uhc-phone .pageBody .nextArrow a { display: inline-block; padding: 4px 0; }
 html.uhc-phone .pageBody .footerNav { flex-wrap: wrap; gap: 6px; }
-html.uhc-phone .pageBody .footerNav a { padding: 6px 0; display: inline-block; }
+html.uhc-phone .pageBody .footerNav a { padding: 8px 0; display: inline-block; }
 
 /* Other pages built for a fixed desktop width */
 html.uhc-phone .pageBody img { max-width: 100%; height: auto; }
@@ -94,6 +101,29 @@ html.uhc-phone .pageBody .card,
 html.uhc-phone .pageBody .homepage,
 html.uhc-phone .pageBody .pageContent > * { max-width: 100%; }
 html.uhc-phone .footer .bannerImage { max-width: 22vw; height: auto; }
+html.uhc-phone .pageBody .rowItem { max-width: 100%; box-sizing: border-box; }
+html.uhc-phone .pageBody .rowItem .description { min-width: 0; }
+html.uhc-phone .pageBody p.cutoff { max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
+
+/* Search: a 450px box and 600px results */
+html.uhc-phone .pageBody .searchBox { width: auto !important; max-width: calc(100% - 24px); margin-left: 12px; margin-right: 12px; display: flex; }
+html.uhc-phone .pageBody .searchBox .searchInput { width: auto !important; flex: 1 1 auto; min-width: 0; min-height: 40px; font-size: 16px; }
+html.uhc-phone .pageBody .searchBox .searchButton { flex: none; min-width: 44px; }
+html.uhc-phone .pageBody .results,
+html.uhc-phone .pageBody .results > div,
+html.uhc-phone .pageBody .results .summary { width: auto !important; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
+html.uhc-phone .pageBody .results { padding: 0 12px; }
+
+/* Settings: a fixed 400px button row; the theme choice that replaces "Dark Mode" */
+html.uhc-phone .pageBody .bigButtonRow { width: auto !important; max-width: 100%; flex-wrap: wrap; gap: 8px; }
+html.uhc-phone .settings input[type="checkbox"],
+html.uhc-phone .settings input[type="radio"] { width: 20px; height: 20px; vertical-align: -4px; }
+html.uhc-phone .settings dt label { display: inline-block; padding: 6px 0; }
+html.uhc-phone .settings select,
+html.uhc-phone .settings input[type="number"],
+html.uhc-phone .settings input[type="text"] { min-height: 36px; font-size: 16px; }
+.uhc-replaced { display: none !important; }
+.uhc-theme-title { font-weight: bold; margin-top: 4px; }
 
 /* ---------- reader bar ---------- */
 html.uhc-phone #uhcReaderBar {
@@ -101,16 +131,19 @@ html.uhc-phone #uhcReaderBar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
   background: var(--uhc-bar-bg);
   border-top: 2px solid var(--uhc-bar-edge);
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  padding: 6px 10px calc(4px + env(safe-area-inset-bottom));
   font-family: Verdana, Geneva, Tahoma, sans-serif;
   color: var(--uhc-bar-ink);
+  -webkit-user-select: none; user-select: none;
 }
 /* Native shell pads for the navigation bar itself; don't add the safe-area inset twice */
-html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 8px; }
+html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 4px; }
 #uhcReaderBar .uhc-next {
-  display: block;
-  margin-bottom: 8px;
-  padding: 11px 12px;
+  display: flex; align-items: center;
+  box-sizing: border-box;
+  min-height: 48px;
+  margin-bottom: 4px;
+  padding: 10px 12px;
   background: var(--uhc-next-bg);
   border: 1px solid var(--uhc-next-border);
   color: var(--uhc-link);
@@ -122,27 +155,56 @@ html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 8px; }
   overflow-wrap: anywhere;
 }
 #uhcReaderBar .uhc-next[hidden] { display: none; }
-#uhcReaderBar .uhc-next::before { content: "> "; color: var(--uhc-bar-ink); }
+#uhcReaderBar .uhc-next::before { content: ">\00a0"; color: var(--uhc-bar-ink); flex: none; align-self: flex-start; }
+#uhcReaderBar .uhc-next:active { filter: brightness(0.92); }
+:root[data-uhc-theme="dark"] #uhcReaderBar .uhc-next:active { filter: brightness(1.4); }
 #uhcReaderBar .uhc-controls {
   display: grid;
-  grid-template-columns: repeat(4, 1fr) 1.6fr;
-  gap: 6px;
+  grid-template-columns: repeat(4, minmax(48px, 1fr)) minmax(0, 1.6fr);
+  gap: 4px;
   align-items: center;
 }
 #uhcReaderBar button {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  min-height: 44px;
-  background: none; border: 0; padding: 4px 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 48px;
+  background: none; border: 0; border-radius: 6px; padding: 4px 0;
   color: var(--uhc-bar-ink);
-  font: 10px Verdana, Geneva, Tahoma, sans-serif;
+  font: 11px Verdana, Geneva, Tahoma, sans-serif;
   cursor: pointer;
 }
+#uhcReaderBar button:active { background: var(--uhc-bar-press); }
 #uhcReaderBar svg {
-  width: 20px; height: 20px;
+  width: 22px; height: 22px;
   fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
 }
-#uhcReaderBar .uhc-progress { font-size: 10px; color: var(--uhc-bar-muted); text-align: right; }
+#uhcReaderBar .uhc-progress { font-size: 11px; color: var(--uhc-bar-muted); text-align: right; padding-left: 4px; }
 #uhcReaderBar .uhc-progress[hidden] { visibility: hidden; display: block; }
-#uhcReaderBar .uhc-track { height: 4px; background: var(--uhc-track); margin-top: 4px; }
+#uhcReaderBar .uhc-progress-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
+#uhcReaderBar .uhc-track { height: 4px; background: var(--uhc-track); margin-top: 4px; border-radius: 2px; overflow: hidden; }
 #uhcReaderBar .uhc-fill { height: 100%; width: 0; background: var(--uhc-link); }
 #uhcReaderBar a:focus-visible, #uhcReaderBar button:focus-visible { outline: 2px solid var(--uhc-link); outline-offset: 2px; }
+
+/* Landscape phones: one row, so the panel keeps most of the short screen */
+@media (orientation: landscape) and (max-height: 540px) {
+  html.uhc-phone #uhcReaderBar { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+  #uhcReaderBar .uhc-next { flex: 1 1 auto; min-width: 0; margin-bottom: 0; min-height: 44px; padding: 6px 10px; }
+  #uhcReaderBar .uhc-controls { flex: 0 0 auto; grid-template-columns: repeat(4, 56px) 120px; }
+  #uhcReaderBar button { min-height: 44px; }
+  #uhcReaderBar button span { display: none; }
+}
+
+/* Tablets, foldables and landscape: keep story text at a readable measure, centred like the
+   original 650px column; panels still scale by width (never above their real size). */
+@media (min-width: 761px) {
+  html.uhc-phone .pageBody .pageFrame { max-width: 760px !important; margin: 0 auto !important; }
+  html.uhc-phone #uhcReaderBar .uhc-next,
+  html.uhc-phone #uhcReaderBar .uhc-controls { max-width: 740px; margin-left: auto; margin-right: auto; }
+}
+@media (min-width: 761px) and (orientation: landscape) and (max-height: 540px) {
+  html.uhc-phone #uhcReaderBar .uhc-next { margin: 0; max-width: none; }
+  html.uhc-phone #uhcReaderBar .uhc-controls { margin: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.uhc-phone * { scroll-behavior: auto !important; }
+}

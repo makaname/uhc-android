@@ -11,7 +11,23 @@ permissions:
   contents: write   # to publish releases on version tags
 
 jobs:
+  # Fast checks on the JavaScript side: ESLint and the shim's unit tests (no bundle needed).
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Lint (ESLint)
+        run: npm run lint
+      - name: Shim tests
+        run: npm test
+
   build:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,11 +75,18 @@ jobs:
           echo "UHC_VERSION_NAME=$V" >> "$GITHUB_ENV"
           echo "UHC_VERSION_CODE=${V##*.}" >> "$GITHUB_ENV"
 
-      - name: Build
+      - name: Unit tests, Android lint and build
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon
+
+      - name: Upload test and lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: android/app/build/reports/
 
       - uses: actions/upload-artifact@v4
         with:

@@ -1,21 +1,13 @@
 package uhc.android.reader;
 
-import android.content.res.AssetManager;
-import android.net.Uri;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
-
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -26,20 +18,51 @@ import java.util.regex.Pattern;
  * Answers the WebView's requests without any real network server.
  *
  *   http://127.0.0.1:8137/          the UHC bundle + shim, from APK assets/web (single-page app fallback)
- *   http://127.0.0.1:8137/pack/     the asset pack folder on the phone
+ *   http://127.0.0.1:8137/pack/     the asset pack (folder or zip, via {@link PackSource})
  *   http://127.0.0.1:8137/__setup/  first-run setup page, from APK assets/setup
  *   *.mspaintadventures.com/...     old URLs inside Flash files, mapped into the pack
  *
  * /pack/ follows the same contract as tools/dev-server.mjs:
  *   HEAD -> 200 + "X-UHC-Kind: file|dir" or 404;  GET dir/?list=1 -> JSON [{name, dir}];  Range supported.
+ *
+ * This class is plain Java (no android.* types) so it can be unit tested on the JVM;
+ * MainActivity turns a {@link Reply} into a WebResourceResponse.
  */
 final class PackServer {
     static final String ORIGIN = "http://127.0.0.1:8137";
     static final String HOST = "127.0.0.1";
     static final int PORT = 8137;
 
-    private static final Pattern RANGE = Pattern.compile("bytes=(\\d*)-(\\d*)");
+    /** Opens a file from the APK's assets folder (AssetManager::open in the app). */
+    interface Assets {
+        InputStream open(String path) throws IOException;
+    }
+
+    /** A response: status, MIME type, headers and body. {@code body} is never null. */
+    static final class Reply {
+        final int status;
+        final String reason;
+        final String mime;
+        final Map<String, String> headers;
+        final InputStream body;
+
+        Reply(int status, String reason, String mime, Map<String, String> headers, InputStream body) {
+            this.status = status;
+            this.reason = reason;
+            this.mime = mime;
+            this.headers = headers;
+            this.body = body;
+        }
+
+        /** Charset to declare for text types, else null. */
+        String encoding() {
+            return mime.startsWith("text/") || mime.endsWith("json") || mime.endsWith("javascript") ? "utf-8" : null;
+        }
+    }
+
+    private static final Pattern RANGE = Pattern.compile("^\\s*bytes\\s*=\\s*(\\d*)\\s*-\\s*(\\d*)\\s*(?:,|$)");
     private static final Map<String, String> TYPES = new HashMap<>();
+
     static {
         String[][] t = {
             {"html", "text/html"}, {"js", "text/javascript"}, {"mjs", "text/javascript"}, {"css", "text/css"},
@@ -55,40 +78,63 @@ final class PackServer {
         for (String[] p : t) TYPES.put(p[0], p[1]);
     }
 
-    private final AssetManager assets;
+    private final Assets assets;
     private volatile PackSource pack;
 
-    PackServer(AssetManager assets) { this.assets = assets; }
+    PackServer(Assets assets) {
+        this.assets = assets;
+    }
 
-    void setPack(PackSource source) { this.pack = source; }
+    void setPack(PackSource source) {
+        this.pack = source;
+    }
 
-    WebResourceResponse handle(WebResourceRequest req) {
-        Uri u = req.getUrl();
-        String host = u.getHost();
+    PackSource pack() {
+        return pack;
+    }
+
+    /**
+     * Routes one request. Returns null for anything that isn't ours, so the WebView handles it
+     * (the app has no INTERNET permission, so that request then simply fails).
+     *
+     * @param path  decoded URL path, e.g. "/pack/storyfiles/hs2/00001.gif"
+     * @param list  true if the query has "list" (directory listing)
+     * @param range the Range header, or null
+     */
+    Reply route(String method, String host, int port, String path, boolean list, String range) {
         if (host == null) return null;
-        String path = u.getPath() == null ? "/" : u.getPath();
+        if (path == null || path.isEmpty()) path = "/";
+        boolean head = "HEAD".equalsIgnoreCase(method);
 
-        if (HOST.equals(host) && u.getPort() == PORT) {
+        if (HOST.equals(host) && port == PORT) {
             if (path.equals("/pack") || path.startsWith("/pack/")) {
-                return servePack(req, path.substring(5), u.getQueryParameter("list") != null);
+                return servePack(path.substring(5), list, head, range);
             }
             if (path.startsWith("/__setup/")) return serveAsset("setup/" + path.substring(9), false);
             return serveAsset("web" + (path.equals("/") ? "/index.html" : path), true);
         }
         // Old external URLs inside Flash files (Electron redirected these on desktop)
-        if (host.endsWith("mspaintadventures.com")) return servePack(req, path, false);
-        return null; // anything else goes to the real network
+        String h = host.toLowerCase(Locale.ROOT);
+        if (h.equals("mspaintadventures.com") || h.endsWith(".mspaintadventures.com")) {
+            return servePack(path.replaceFirst("^/Sfiles/", "/"), false, head, range);
+        }
+        return null;
     }
 
     // ---------- APK assets ----------
 
-    private WebResourceResponse serveAsset(String assetPath, boolean spaFallback) {
+    private Reply serveAsset(String assetPath, boolean spaFallback) {
+        if (PackSource.clean(assetPath) == null) return status(403, "Forbidden");
         try {
-            return ok(mime(assetPath), assets.open(assetPath), -1, null);
+            return ok(mime(assetPath), assets.open(assetPath), -1, baseHeaders());
         } catch (IOException missing) {
             String last = assetPath.substring(assetPath.lastIndexOf('/') + 1);
             if (spaFallback && !last.contains(".")) {
-                try { return ok("text/html", assets.open("web/index.html"), -1, null); } catch (IOException ignored) { }
+                try {
+                    return ok("text/html", assets.open("web/index.html"), -1, baseHeaders());
+                } catch (IOException ignored) {
+                    // fall through to 404
+                }
             }
             return status(404, "Not Found");
         }
@@ -96,17 +142,20 @@ final class PackServer {
 
     // ---------- asset pack ----------
 
-    private WebResourceResponse servePack(WebResourceRequest req, String rel, boolean list) {
+    private Reply servePack(String rel, boolean list, boolean head, String range) {
         PackSource src = pack;
-        if (src == null) return status(404, "Not Found");
+        if (src == null) return status(503, "No Asset Pack");
         String r = PackSource.clean(rel);
         if (r == null) return status(403, "Forbidden");
         String kind = src.kind(r);
         if (kind == null) return status(404, "Not Found");
 
-        boolean head = "HEAD".equalsIgnoreCase(req.getMethod());
         if (PackSource.KIND_DIR.equals(kind)) {
-            if (head) return withHeaders(status(200, "OK"), "X-UHC-Kind", "dir");
+            if (head) {
+                Reply ok = status(200, "OK");
+                ok.headers.put("X-UHC-Kind", "dir");
+                return ok;
+            }
             if (list) return listing(src.list(r));
             return status(404, "Not Found");
         }
@@ -118,46 +167,68 @@ final class PackServer {
         String type = mime(r);
         if (head) {
             h.put("Content-Length", String.valueOf(size));
-            return new WebResourceResponse(type, null, 200, "OK", h, new ByteArrayInputStream(new byte[0]));
+            return new Reply(200, "OK", type, h, empty());
         }
         try {
-            String range = header(req, "Range");
-            Matcher m = range == null ? null : RANGE.matcher(range);
-            if (m != null && m.find() && size > 0) {
-                long start, end;
-                if (m.group(1).isEmpty()) {           // bytes=-N (last N bytes)
-                    start = Math.max(0, size - Long.parseLong(m.group(2)));
-                    end = size - 1;
-                } else {
-                    start = Long.parseLong(m.group(1));
-                    end = m.group(2).isEmpty() ? size - 1 : Math.min(Long.parseLong(m.group(2)), size - 1);
-                }
-                if (start > end || start >= size) {
-                    h.put("Content-Range", "bytes */" + size);
-                    return new WebResourceResponse(type, null, 416, "Range Not Satisfiable", h, new ByteArrayInputStream(new byte[0]));
-                }
-                long len = end - start + 1;
-                h.put("Content-Range", "bytes " + start + "-" + end + "/" + size);
-                h.put("Content-Length", String.valueOf(len));
-                return new WebResourceResponse(type, null, 206, "Partial Content", h, src.open(r, start, len));
+            long[] span = parseRange(range, size);
+            if (span == null) return ok(type, src.open(r, 0, -1), size, h);
+            if (span.length == 0) {
+                h.put("Content-Range", "bytes */" + size);
+                return new Reply(416, "Range Not Satisfiable", type, h, empty());
             }
-            return ok(type, src.open(r, 0, -1), size, h);
+            long start = span[0], end = span[1], len = end - start + 1;
+            h.put("Content-Range", "bytes " + start + "-" + end + "/" + size);
+            h.put("Content-Length", String.valueOf(len));
+            return new Reply(206, "Partial Content", type, h, src.open(r, start, len));
         } catch (IOException e) {
+            // The pack was moved, deleted or is unreadable.
             return status(500, "Internal Server Error");
         }
     }
 
-    private WebResourceResponse listing(Map<String, Boolean> kids) {
+    /**
+     * Parses a single "bytes=a-b" range against a file of {@code size} bytes.
+     * Returns null to serve the whole file (no or unusable header), an empty array for 416,
+     * or {start, end} inclusive.
+     */
+    static long[] parseRange(String header, long size) {
+        if (header == null) return null;
+        Matcher m = RANGE.matcher(header);
+        if (!m.find()) return null;
+        String a = m.group(1), b = m.group(2);
+        if (a.isEmpty() && b.isEmpty()) return null;
+        try {
+            long start, end;
+            if (a.isEmpty()) {                       // bytes=-N: the last N bytes
+                long n = Long.parseLong(b);
+                if (n == 0 || size == 0) return new long[0];
+                start = Math.max(0, size - n);
+                end = size - 1;
+            } else {
+                start = Long.parseLong(a);
+                end = b.isEmpty() ? size - 1 : Math.min(Long.parseLong(b), size - 1);
+                if (!b.isEmpty() && Long.parseLong(b) < start) return null;   // invalid: ignore it
+            }
+            if (start >= size || start > end) return new long[0];
+            return new long[]{start, end};
+        } catch (NumberFormatException tooBig) {
+            return new long[0];
+        }
+    }
+
+    private static Reply listing(Map<String, Boolean> kids) {
         JSONArray arr = new JSONArray();
         if (kids != null) {
             try {
                 for (Map.Entry<String, Boolean> k : new java.util.TreeMap<>(kids).entrySet()) {
                     arr.put(new JSONObject().put("name", k.getKey()).put("dir", k.getValue()));
                 }
-            } catch (Exception ignored) { }
+            } catch (JSONException impossible) {
+                // only thrown for non-finite numbers
+            }
         }
         byte[] body = arr.toString().getBytes(StandardCharsets.UTF_8);
-        return ok("application/json", new ByteArrayInputStream(body), body.length, null);
+        return ok("application/json", new ByteArrayInputStream(body), body.length, baseHeaders());
     }
 
     // ---------- helpers ----------
@@ -168,29 +239,17 @@ final class PackServer {
         return h;
     }
 
-    private static WebResourceResponse ok(String type, InputStream in, long length, Map<String, String> headers) {
-        Map<String, String> h = headers != null ? headers : baseHeaders();
+    private static Reply ok(String type, InputStream in, long length, Map<String, String> h) {
         if (length >= 0) h.put("Content-Length", String.valueOf(length));
-        String enc = type.startsWith("text/") || type.endsWith("json") || type.endsWith("javascript") ? "utf-8" : null;
-        return new WebResourceResponse(type, enc, 200, "OK", h, in);
+        return new Reply(200, "OK", type, h, in);
     }
 
-    private static WebResourceResponse status(int code, String reason) {
-        return new WebResourceResponse("text/plain", "utf-8", code, reason, baseHeaders(), new ByteArrayInputStream(new byte[0]));
+    static Reply status(int code, String reason) {
+        return new Reply(code, reason, "text/plain", baseHeaders(), empty());
     }
 
-    private static WebResourceResponse withHeaders(WebResourceResponse r, String k, String v) {
-        Map<String, String> h = new HashMap<>(r.getResponseHeaders());
-        h.put(k, v);
-        r.setResponseHeaders(h);
-        return r;
-    }
-
-    private static String header(WebResourceRequest req, String name) {
-        Map<String, String> h = req.getRequestHeaders();
-        if (h == null) return null;
-        for (Map.Entry<String, String> e : h.entrySet()) if (e.getKey().equalsIgnoreCase(name)) return e.getValue();
-        return null;
+    private static InputStream empty() {
+        return new ByteArrayInputStream(new byte[0]);
     }
 
     static String mime(String name) {
@@ -198,32 +257,5 @@ final class PackServer {
         String ext = dot < 0 ? "" : name.substring(dot + 1).toLowerCase(Locale.ROOT);
         String t = TYPES.get(ext);
         return t != null ? t : "application/octet-stream";
-    }
-
-    private static void skipFully(InputStream in, long n) throws IOException {
-        while (n > 0) {
-            long s = in.skip(n);
-            if (s <= 0) throw new IOException("skip failed");
-            n -= s;
-        }
-    }
-
-    /** Reads at most {@code remaining} bytes from the wrapped stream. */
-    private static final class Bounded extends FilterInputStream {
-        private long remaining;
-        Bounded(InputStream in, long len) { super(in); remaining = len; }
-        @Override public int read() throws IOException {
-            if (remaining <= 0) return -1;
-            int b = super.read();
-            if (b >= 0) remaining--;
-            return b;
-        }
-        @Override public int read(byte[] b, int off, int len) throws IOException {
-            if (remaining <= 0) return -1;
-            int n = super.read(b, off, (int) Math.min(len, remaining));
-            if (n > 0) remaining -= n;
-            return n;
-        }
-        @Override public int available() throws IOException { return (int) Math.min(super.available(), remaining); }
     }
 }

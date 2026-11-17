@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DayNight so the WebView's prefers-color-scheme follows the phone's dark mode -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/frame</item>
+        <item name="android:statusBarColor">@color/frame</item>
+        <item name="android:navigationBarColor">@color/frame</item>
+    </style>
+</resources>

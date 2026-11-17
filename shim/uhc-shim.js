@@ -209,17 +209,25 @@
       size: 0, mtime: new Date(0), mtimeMs: 0
     };
   }
+  // The pack is read-only, so text files read more than once (mods re-read mod.js and the 1.6 MB
+  // epilogues.yaml on every load) come from memory. Capped so a big file can't pin much RAM.
+  var textCache = {}, textCacheBytes = 0, TEXT_CACHE_MAX = 8 * 1024 * 1024;
   function getSync(p, enc) {
     var url = packUrlFor(p);
     if (!url) throw enoent(p);
     var wantText = typeof enc === 'string' || (enc && enc.encoding);
+    if (wantText && Object.prototype.hasOwnProperty.call(textCache, url)) return textCache[url];
     var x = new XMLHttpRequest();
     x.open('GET', url, false);
     // Sync XHR can't return an ArrayBuffer; this charset trick keeps each byte in the low 8 bits.
     if (!wantText) x.overrideMimeType('text/plain; charset=x-user-defined');
     x.send();
     if (x.status < 200 || x.status >= 300) throw enoent(p);
-    if (wantText) return x.responseText;
+    if (wantText) {
+      var t = x.responseText;
+      if (textCacheBytes + t.length <= TEXT_CACHE_MAX) { textCache[url] = t; textCacheBytes += t.length; }
+      return t;
+    }
     var s = x.responseText, b = new Buffer(s.length);
     for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 0xff;
     return b;
@@ -389,11 +397,24 @@
     });
   }
 
-  function loadArchiveData() {
-    ipcRenderer.emit('SET_LOAD_STAGE', 'ARCHIVE');
+  function fetchArchiveJson() {
     return Promise.all([fetchJson('archive/data/version.json')].concat(
       ARCHIVE_FILES.map(function (k) { return fetchJson('archive/data/' + k + '.json'); })
-    )).then(function (res) {
+    ));
+  }
+  // Start the ~13 MB of archive JSON now, while the bundle is still parsing; on desktop the main
+  // process has it ready too. Used once (mods edit the objects, so a reload fetches fresh ones).
+  var prefetchedArchive = null;
+  if (!/^\/__setup\//.test(location.pathname)) {
+    prefetchedArchive = fetchArchiveJson();
+    prefetchedArchive.catch(function () { /* reported when the app asks for it */ });
+  }
+
+  function loadArchiveData() {
+    ipcRenderer.emit('SET_LOAD_STAGE', 'ARCHIVE');
+    var pending = prefetchedArchive || fetchArchiveJson();
+    prefetchedArchive = null;
+    return pending.catch(function () { return fetchArchiveJson(); }).then(function (res) {
       var data = Object.assign({}, res[0]);
       ARCHIVE_FILES.forEach(function (k, i) { data[k] = res[i + 1]; });
       data.audioData = {}; data.flags = {}; data.mspfa = {};
@@ -684,7 +705,7 @@
   patchNetwork(window);
 
   // Put a one-line hook at the top of every srcdoc iframe so it is patched before its scripts run.
-  var SRCDOC_HOOK = '<script>try{parent.UHCShim.patchNetwork(window)}catch(e){}<\/script>';
+  var SRCDOC_HOOK = '<script>try{parent.UHCShim.patchNetwork(window)}catch(e){}</scr' + 'ipt>';
   function hookSrcdoc(html) {
     return (typeof html === 'string' && html.indexOf('UHCShim.patchNetwork') < 0) ? SRCDOC_HOOK + html : html;
   }

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>Set up</title>
 <style>
   :root {
@@ -34,13 +35,17 @@
   .state { font-family: Verdana, Geneva, sans-serif; font-size: 12px; margin: 6px 0 0 22px; }
   .state.ok { color: var(--ok); }
   .state.bad { color: var(--bad); }
+  .state.busy::after { content: ""; display: inline-block; width: 1.5em; text-align: left; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  @media (prefers-reduced-motion: reduce) { .state.busy::after { animation: none; content: "..."; } }
   button {
-    display: block; width: calc(100% - 22px); margin: 10px 0 0 22px; min-height: 44px;
+    display: block; width: calc(100% - 22px); margin: 10px 0 0 22px; min-height: 48px;
     background: var(--button); color: var(--link); border: 1px solid var(--button-border);
     font: bold 15px "Courier New", Courier, monospace; text-align: left; padding: 10px 12px;
   }
   button::before { content: "> "; color: var(--ink); }
   button:disabled { color: var(--muted); }
+  button:not(:disabled):active { filter: brightness(0.92); }
   button[hidden] { display: none; }
   button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
   code { font-family: inherit; overflow-wrap: anywhere; }
@@ -63,7 +68,7 @@
         <div id="accessState" class="state"></div>
       </li>
       <li>
-        <div class="step"><b>3.</b><p>Point the app at the folder.</p></div>
+        <div class="step"><b>3.</b><p>The app looks in <code>Download</code> by itself. If you put the pack somewhere else, show it where.</p></div>
         <button id="pick" type="button">Choose the folder it's in</button>
         <div id="pickState" class="state"></div>
         <button id="recheck" type="button" hidden>Check again</button>
@@ -95,20 +100,32 @@
     // Pack found but not yet confirmed complete
     var ps = $('pickState');
     $('recheck').hidden = true;
+    var where = st.packPath ? st.packPath.replace(/^\/storage\/emulated\/0\//, '') : '';
     if (st.packPath && st.checking) {
-      ps.className = 'state';
-      ps.textContent = 'Found ' + st.packPath + '. Checking that every file is there...';
+      ps.className = 'state busy';
+      ps.textContent = 'Found ' + where + '. Checking that every file is there';
+    } else if (st.packPath && st.isZip && st.fileCount === 0) {
+      ps.className = 'state bad';
+      ps.textContent = 'Found ' + where + ", but the zip isn't complete. If it is still copying, wait for it to finish, then check again.";
+      $('recheck').hidden = false;
     } else if (st.packPath && st.fileCount >= 0 && st.fileCount < st.expectedFiles) {
       ps.className = 'state bad';
       ps.textContent = 'The asset pack is incomplete: ' + st.fileCount.toLocaleString() + ' of ' +
         st.expectedFiles.toLocaleString() + ' files. If it is still copying, wait for it to finish, then check again.';
+      $('recheck').hidden = false;
+    } else if (st.packPath && st.fileCount >= st.expectedFiles) {
+      ps.className = 'state ok busy';
+      ps.textContent = 'All set. Opening the collection';
+    } else if (st.hasAccess && !st.packPath && !ps.textContent) {
+      ps.className = 'state';
+      ps.textContent = 'No asset pack in Download yet.';
       $('recheck').hidden = false;
     }
   }
 
   $('access').addEventListener('click', function () { N.requestAccess(); });
   $('pick').addEventListener('click', function () { $('pickState').textContent = ''; N.pickFolder(); });
-  $('recheck').addEventListener('click', function () { N.recheck(); });
+  $('recheck').addEventListener('click', function () { $('pickState').textContent = ''; N.recheck(); });
   // While a count is running, poll so the status line updates when it finishes
   setInterval(function () { try { if (JSON.parse(N.status()).checking) refresh(); } catch (e) {} }, 1500);
 

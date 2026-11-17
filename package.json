@@ -1,0 +1,17 @@
+{
+  "name": "uhc-android",
+  "private": true,
+  "description": "Android port of The Unofficial Homestuck Collection 2.8.1 (dev tooling only; nothing here ships in the APK)",
+  "license": "GPL-3.0",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "globals": "17.13.0"
+  }
+}

@@ -23,8 +23,8 @@ android {
         applicationId 'uhc.android.reader'
         minSdk 26
         targetSdk 35
-        versionCode ciVersionCode ? ciVersionCode.toInteger() : 5
-        versionName ciVersionName ?: '2.8.1-android.5'
+        versionCode ciVersionCode ? ciVersionCode.toInteger() : 6
+        versionName ciVersionName ?: '2.8.1-android.6'
     }
 
     signingConfigs {
@@ -50,6 +50,18 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.all { testLogging { events 'failed'; exceptionFormat 'full' } }
+    }
+
+    lint {
+        abortOnError true
+        checkDependencies false
+        // A deliberate design choice, explained in AndroidManifest.xml and README.md
+        disable 'ScopedStorage', 'ObsoleteSdkInt', 'OldTargetApi', 'GradleDependency', 'AndroidGradlePluginVersion'
+        textReport true
+    }
+
     buildTypes {
         debug {
             if (hasSigning) signingConfig signingConfigs.uhc
@@ -59,6 +71,12 @@ android {
             if (hasSigning) signingConfig signingConfigs.uhc
         }
     }
+}
+
+dependencies {
+    // Tests only; nothing here ships in the APK.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'   // android.jar's org.json is a stub on the JVM
 }
 
 // Rebuild the web bundle before packaging assets, so the APK never ships a stale shim.

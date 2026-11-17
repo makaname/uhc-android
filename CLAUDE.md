@@ -8,9 +8,11 @@ unknown bug there, while the compiled 2.8.1 release works.
 
 - `tools/fetch-uhc.mjs` puts the compiled bundle in `vendor/uhc-2.8.1-app/` (gitignored) from the official installer, SHA-256 checked.
 - `shim/uhc-shim.js` is the Electron/Node stand-in: `require()`, IPC, electron-store (localStorage), read-only fs over HTTP, imod CommonJS loader, `assets://` redirection.
-- `shim/mobile.js` and `shim/mobile.css` hold the phone UI: reader bar, media zoom-to-fit, light/dark following the system.
+- `shim/mobile.js` and `shim/mobile.css` hold the phone UI: reader bar, media zoom-to-fit (including custom Flash pages), light/dark (follow the phone, or Settings → Application Theme; stored as `uhc-theme-mode` in localStorage), system-bar colours and keep-screen-on via the bridge.
 - `tools/prepare-web.mjs` builds `build/assets/web` (copied into the APK). It edits only index.html, the webpack public path and CSS `assets://` URLs, and drops the desktop-only imods archive chunk.
-- `android/` is a plain Java WebView app, with no AndroidX. `PackServer` serves `http://127.0.0.1:8137/` (bundle) and `/pack/` (asset pack). `PackSource` reads the pack from a folder or, preferably, `UHC-Asset-Pack-V2.zip` in place.
+- `android/` is a plain Java WebView app, with no AndroidX. `PackServer` serves `http://127.0.0.1:8137/` (bundle) and `/pack/` (asset pack); it is plain Java (`route()` returns a `Reply`) so JVM tests cover it, and `MainActivity.toWebResponse` adapts it. `PackSource` reads the pack from a folder or, preferably, `UHC-Asset-Pack-V2.zip` in place.
+- The `UHCNative` bridge is visible to all page JS, including the pack's mods: setup calls only work on the setup page, `openExternal` only opens http(s)/mailto. Keep it that small. No INTERNET permission, on purpose.
+- Tests: `test/` (Node, shim in a fake browser) and `android/app/src/test/` (JVM: PackSource, PackServer).
 - The asset pack is copyrighted and 4.4 GB. Never commit it. Phones get it as one stored zip via LocalSend or USB.
 
 ## Commands
@@ -19,6 +21,9 @@ unknown bug there, while the compiled 2.8.1 release works.
 node tools/fetch-uhc.mjs [path/to/installer.exe]   # once per checkout
 node tools/prepare-web.mjs && node tools/dev-server.mjs "<path to Asset Pack V2>"   # browser harness at 127.0.0.1:8137 (use ~390px width)
 ./build-apk.sh                                     # debug APK -> android/app/build/outputs/apk/debug/app-debug.apk
+npm ci && npm run lint && npm test                 # ESLint + shim tests
+(cd android && ./gradlew testDebugUnitTest lintDebug)   # Java tests + Android lint (CI runs all four)
+node tools/perf.mjs 5                              # cold start / page turn medians on the emulator
 node tools/cdp.mjs "<js>"                          # evaluate JS in the app's WebView on the emulator/device
 ```
 
@@ -27,7 +32,10 @@ On Windows: Java needs `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=<path with
 ## Testing
 
 - The emulator is AVD `UHC_Android17` (Android 17 / API 37, matching the owner's OnePlus 15). Install with `adb install -r`, push the pack zip to `/sdcard/Download/`, and check with `tools/cdp.mjs` plus `adb exec-out screencap -p`.
-- Before handing over a build, check: setup and file access, story page panel fit and the reader bar next/back, Android back gesture, a Flash page with audio (page 2153 "[S] YOU THERE. BOY."), dark mode, and Save (bookmarks).
+- Before handing over a build, check: setup and file access, story page panel fit and the reader bar next/back, Android back gesture, a Flash page with audio (page 2153 "[S] YOU THERE. BOY."), a custom-layout Flash page (/mspa/008801 "[S] GAME OVER", /mspa/009987 "[S] Collide"), dark mode, and Save (bookmarks).
+- The emulator's reader is in new-reader mode; Flash pages past the limit are spoiler-locked. Save `settings.newReader`, set it to `false` to test, then restore it.
+- `perf.mjs`: the WebView writes localStorage to disk 1-2 s after a change; don't force-stop sooner when you expect state to survive.
+- Record changes in `CHANGELOG.md`.
 - Bump `versionCode`/`versionName` in `android/app/build.gradle` for every APK the owner installs.
 
 ## GitHub and releases

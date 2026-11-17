@@ -1,6 +1,6 @@
 package uhc.android.reader;
 
-import java.io.ByteArrayInputStream;
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FilterInputStream;
@@ -36,6 +36,8 @@ abstract class PackSource {
     /** Regular (non-hidden) files in the pack, for the completeness check. */
     abstract int countFiles();
     abstract String describe();
+    /** False once the pack was moved, deleted or replaced since it was opened. */
+    abstract boolean stillValid();
 
     boolean looksLikePack() {
         return KIND_FILE.equals(kind("archive/data/mspa.json")) && KIND_FILE.equals(kind("storyfiles/hs2/00001.gif"));
@@ -88,8 +90,13 @@ abstract class PackSource {
             File f = file(rel);
             if (f == null) throw new IOException("bad path");
             FileInputStream in = new FileInputStream(f);
-            if (start > 0) in.getChannel().position(start);
-            return len < 0 ? in : new Bounded(in, len);
+            try {
+                if (start > 0) in.getChannel().position(start);
+            } catch (IOException e) {
+                in.close();
+                throw e;
+            }
+            return buffered(len < 0 ? in : new Bounded(in, len));
         }
         @Override int countFiles() {
             int n = 0;
@@ -106,6 +113,7 @@ abstract class PackSource {
             return n;
         }
         @Override String describe() { return root.getAbsolutePath(); }
+        @Override boolean stillValid() { return new File(root, "archive/data/mspa.json").isFile(); }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -121,12 +129,15 @@ abstract class PackSource {
         }
 
         final File file;
+        private final long openedLength, openedModified;
         private final Map<String, Entry> files = new HashMap<>();
         private final Map<String, Map<String, Boolean>> dirs = new HashMap<>();
         private int visibleFiles = 0;
 
         Zip(File file) throws IOException {
             this.file = file;
+            this.openedLength = file.length();
+            this.openedModified = file.lastModified();
             Map<String, Entry> raw = new HashMap<>();
             List<String> emptyDirs = new ArrayList<>();   // folder entries, so empty folders still exist
             try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
@@ -245,14 +256,18 @@ abstract class PackSource {
         }
         @Override int countFiles() { return visibleFiles; }
         @Override String describe() { return file.getAbsolutePath(); }
+        @Override boolean stillValid() {
+            return file.isFile() && file.length() == openedLength && file.lastModified() == openedModified;
+        }
 
         @Override InputStream open(String rel, long start, long len) throws IOException {
             Entry e = files.get(clean(rel));
             if (e == null) throw new IOException("missing " + rel);
             long data = dataStart(e);
+            if (start < 0 || start > e.size) throw new IOException("bad offset");
             if (e.method == 0) {
                 long n = len < 0 ? e.size - start : Math.min(len, e.size - start);
-                return new Bounded(new RafStream(file, data + start), Math.max(0, n));
+                return buffered(new Bounded(new RafStream(file, data + start), Math.max(0, n)));
             }
             if (e.method != 8) throw new IOException("Unsupported compression in zip: " + e.method);
             InputStream in = new InflaterInputStream(new Bounded(new RafStream(file, data), e.compSize), new Inflater(true), 64 * 1024);
@@ -262,7 +277,7 @@ abstract class PackSource {
                 if (s <= 0) break;
                 skip -= s;
             }
-            return len < 0 ? in : new Bounded(in, len);
+            return buffered(len < 0 ? in : new Bounded(in, len));
         }
 
         private long dataStart(Entry e) throws IOException {
@@ -295,6 +310,14 @@ abstract class PackSource {
     }
 
     /** Reads at most {@code remaining} bytes from the wrapped stream. */
+    /**
+     * The WebView pulls intercepted responses in small reads; a 64 KiB buffer turns those into few
+     * file reads (mspa.json, 10 MB, loads in about half the time).
+     */
+    static InputStream buffered(InputStream in) {
+        return new BufferedInputStream(in, 64 * 1024);
+    }
+
     static final class Bounded extends FilterInputStream {
         private long remaining;
         Bounded(InputStream in, long len) { super(in); remaining = len; }
@@ -317,8 +340,4 @@ abstract class PackSource {
         }
         @Override public int available() throws IOException { return (int) Math.min(super.available(), remaining); }
     }
-
-    static InputStream empty() { return new ByteArrayInputStream(new byte[0]); }
-
-    static List<String> sortedNames(Map<String, Boolean> m) { return new ArrayList<>(m.keySet()); }
 }
