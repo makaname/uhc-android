@@ -2,6 +2,14 @@
 
 Versions are `2.8.1-android.N`: the UHC release it runs, then this port's build number.
 
+## 2.8.1-android.8
+
+### Fixed
+- **Music plays.** UHC's Music pages play songs through Bandcamp's embedded player, which needs the
+  internet (the asset pack has album art and booklets, not the songs). The app may now reach Bandcamp
+  (bandcamp.com and its media servers) and nothing else: every other site is refused inside the app.
+- The Bandcamp player and track details fit the phone's width on track pages.
+
 ## 2.8.1-android.7
 
 ### Fixed

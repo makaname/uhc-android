@@ -21,6 +21,8 @@ import java.util.regex.Pattern;
  *   http://127.0.0.1:8137/pack/     the asset pack (folder or zip, via {@link PackSource})
  *   http://127.0.0.1:8137/__setup/  first-run setup page, from APK assets/setup
  *   *.mspaintadventures.com/...     old URLs inside Flash files, mapped into the pack
+ *   bandcamp.com, bcbits.com        Bandcamp's embedded player: the only requests allowed onto the network
+ *   anything else                   403, so nothing else leaves the phone
  *
  * /pack/ follows the same contract as tools/dev-server.mjs:
  *   HEAD -> 200 + "X-UHC-Kind: file|dir" or 404;  GET dir/?list=1 -> JSON [{name, dir}];  Range supported.
@@ -94,8 +96,19 @@ final class PackServer {
     }
 
     /**
-     * Routes one request. Returns null for anything that isn't ours, so the WebView handles it
-     * (the app has no INTERNET permission, so that request then simply fails).
+     * The only hosts the app may reach over the network: Bandcamp's embedded player (UHC's Music pages
+     * play songs through it) and the servers it streams from. Everything else is served locally or refused.
+     */
+    static boolean isAllowedRemote(String host) {
+        if (host == null) return false;
+        String h = host.toLowerCase(Locale.ROOT);
+        return h.equals("bandcamp.com") || h.endsWith(".bandcamp.com")
+            || h.equals("bcbits.com") || h.endsWith(".bcbits.com");
+    }
+
+    /**
+     * Routes one request. Returns null only for an allowed remote host ({@link #isAllowedRemote}), so the
+     * WebView fetches it from the network; anything else that isn't ours gets a 403 and never leaves the phone.
      *
      * @param path  decoded URL path, e.g. "/pack/storyfiles/hs2/00001.gif"
      * @param list  true if the query has "list" (directory listing)
@@ -118,7 +131,8 @@ final class PackServer {
         if (h.equals("mspaintadventures.com") || h.endsWith(".mspaintadventures.com")) {
             return servePack(path.replaceFirst("^/Sfiles/", "/"), false, head, range);
         }
-        return null;
+        if (isAllowedRemote(h)) return null;   // Bandcamp's player: let the WebView fetch it
+        return status(403, "Forbidden");
     }
 
     // ---------- APK assets ----------

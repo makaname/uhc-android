@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The app has no INTERNET permission: every request is answered in-process by PackServer.
-     Plain http is allowed only for the two hosts PackServer answers. -->
+<!-- Every request is answered in-process by PackServer, except Bandcamp's embedded player (https only);
+     PackServer refuses all other remote hosts. Plain http is allowed only for the two hosts PackServer answers. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">

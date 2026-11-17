@@ -137,9 +137,22 @@ public class PackServerTest {
         assertEquals(200, r.status);
         r = server.route("GET", "cdn.mspaintadventures.com", 80, "/Sfiles/storyfiles/hs2/00001.gif", false, null);
         assertEquals(200, r.status);
-        assertNull(server.route("GET", "example.com", 443, "/", false, null));
-        assertNull(server.route("GET", "evilmspaintadventures.com", 80, "/", false, null));
+        // Anything else that isn't ours is refused, not sent to the network.
+        assertEquals(403, server.route("GET", "example.com", 443, "/", false, null).status);
+        assertEquals(403, server.route("GET", "evilmspaintadventures.com", 80, "/", false, null).status);
         assertNull(server.route("GET", null, -1, "/", false, null));
+    }
+
+    /** Bandcamp's embedded player (UHC's Music pages) is the only thing allowed onto the network. */
+    @Test public void onlyBandcampGoesToTheNetwork() {
+        assertNull(server.route("GET", "bandcamp.com", 443, "/EmbeddedPlayer/size=small/track=123/", false, null));
+        assertNull(server.route("GET", "homestuck.bandcamp.com", 443, "/track/x", false, null));
+        assertNull(server.route("GET", "f4.bcbits.com", 443, "/img/a1.jpg", false, null));
+        assertNull(server.route("GET", "t4.bcbits.com", 443, "/stream/abc/mp3-128/1", false, null));
+        assertEquals(403, server.route("GET", "notbandcamp.com", 443, "/", false, null).status);
+        assertEquals(403, server.route("GET", "bandcamp.com.evil.example", 443, "/", false, null).status);
+        assertEquals(403, server.route("GET", "www.google-analytics.com", 443, "/collect", false, null).status);
+        assertEquals(403, server.route("GET", "fonts.googleapis.com", 443, "/css", false, null).status);
     }
 
     @Test public void noPackYet() {
