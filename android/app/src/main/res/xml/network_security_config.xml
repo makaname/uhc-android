@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app has no INTERNET permission: every request is answered in-process by PackServer.
+     Plain http is allowed only for the two hosts PackServer answers. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="true">mspaintadventures.com</domain>
+    </domain-config>
+</network-security-config>
