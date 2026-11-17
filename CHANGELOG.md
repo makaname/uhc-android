@@ -10,6 +10,8 @@ Versions are `2.8.1-android.N`: the UHC release it runs, then this port's build 
   Karkat's grey. On dark backgrounds, any coloured text below 4.5:1 contrast is now lightened, keeping its
   hue, so every character reaches at least 4.5:1 and similar colours stay distinguishable (John stays
   lighter than Equius). It works for every character, not a fixed list. Light mode keeps the original colours.
+- The command link at the bottom of a story page now uses the same bold Courier as the story text and
+  the reader bar. UHC sets it in Verdana, which phones don't have.
 
 ## 2.8.1-android.6
 
