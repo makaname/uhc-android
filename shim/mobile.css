@@ -89,6 +89,14 @@ html.uhc-phone .pageBody .logButton { min-height: 44px; padding: 8px 14px; }
 
 /* The next command lives in the reader bar; keep the in-page links but give them room */
 html.uhc-phone .pageBody .pageNavigation { width: 100% !important; }
+/* UHC sets the command link in Verdana, which phones don't have (Android swaps in its own sans-serif).
+   Match the story text and the reader bar instead: bold Courier. */
+html.uhc-phone .pageBody .nextArrow,
+html.uhc-phone .pageBody .nextArrow p,
+html.uhc-phone .pageBody .nextArrow a {
+  font-family: "Courier New", Courier, monospace !important;
+  font-weight: bold !important;
+}
 html.uhc-phone .pageBody .nextArrow { font-size: 18px !important; }
 html.uhc-phone .pageBody .nextArrow a { display: inline-block; padding: 4px 0; }
 html.uhc-phone .pageBody .footerNav { flex-wrap: wrap; gap: 6px; }
