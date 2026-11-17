@@ -1,6 +1,7 @@
 // Builds build/web from the compiled UHC 2.8.1 bundle plus our shim and phone stylesheet.
 // The bundle itself is copied unchanged; only index.html is adjusted.
 // Usage: node tools/prepare-web.mjs
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,11 +55,20 @@ for (const f of fs.readdirSync(path.join(out, "css"))) {
   if (css.includes("assets://")) fs.writeFileSync(p, css.replaceAll("assets://", "/pack/"));
 }
 
+// The shim files keep the same names between app versions, so the WebView could reuse a cached
+// copy after an update. A content fingerprint in each URL makes every change load fresh.
+const shimUrl = (rel) => {
+  const hash = crypto.createHash("sha256").update(fs.readFileSync(path.join(root, "shim", rel))).digest("hex").slice(0, 10);
+  return `/shim/${rel}?v=${hash}`;
+};
+
 let html = fs.readFileSync(path.join(src, "index.html"), "utf8");
 html = html
   .replaceAll("app://./", "/")
   .replace(/<meta name="viewport"[^>]*>/, '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">')
-  .replace("<head>", '<head><script src="/shim/vendor/js-yaml-3.14.1.min.js"></script><script src="/shim/uhc-shim.js"></script><script src="/shim/mobile.js" defer></script><link rel="stylesheet" href="/shim/mobile.css">');
+  .replace("<head>", `<head><script src="${shimUrl("vendor/js-yaml-3.14.1.min.js")}"></script>` +
+    `<script src="${shimUrl("uhc-shim.js")}"></script><script src="${shimUrl("mobile.js")}" defer></script>` +
+    `<link rel="stylesheet" href="${shimUrl("mobile.css")}">`);
 if (!html.includes("uhc-shim.js")) throw new Error("Failed to inject shim into index.html");
 fs.writeFileSync(path.join(out, "index.html"), html);
 

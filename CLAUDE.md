@@ -25,7 +25,7 @@ npm ci && npm run lint && npm test                 # ESLint + shim tests
 (cd android && ./gradlew testDebugUnitTest lintDebug)   # Java tests + Android lint (CI runs all four)
 node tools/perf.mjs 5                              # cold start / page turn medians on the emulator
 node tools/cdp.mjs "<js>"                          # evaluate JS in the app's WebView on the emulator/device
-node tools/tap.mjs "<css selector>"                # real (trusted) tap on an element in the app
+node tools/gesture.mjs tap|doubletap|swipe|pinch ...  # real (trusted) touch gestures in the app (see the file)
 ```
 
 On Windows: Java needs `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=<path without spaces>` (build-apk.sh sets it). adb, the emulator and Gradle need the sandbox disabled because they use loopback sockets. In Git Bash, set `MSYS_NO_PATHCONV=1` for adb paths like `/sdcard`.
@@ -33,7 +33,7 @@ On Windows: Java needs `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=<path with
 ## Testing
 
 - The emulator is AVD `UHC_Android17` (Android 17 / API 37, matching the owner's OnePlus 15). Install with `adb install -r`, push the pack zip to `/sdcard/Download/`, and check with `tools/cdp.mjs` plus `adb exec-out screencap -p`.
-- Before handing over a build, check: setup (pick the zip; it must survive a restart), story page panel fit and the reader bar next/back, Android back gesture, a Flash page with audio (page 2153 "[S] YOU THERE. BOY."), go to page (tap the counter; back closes the box), a custom-layout Flash page (/mspa/008801 "[S] GAME OVER", /mspa/009987 "[S] Collide"), dark mode, and Save (bookmarks).
+- Before handing over a build, check: setup (pick the zip; it must survive a restart), story page panel fit and the reader bar next/back, Android back gesture, a Flash page with audio (page 2153 "[S] YOU THERE. BOY."), go to page (tap the counter; back closes the box), reading gestures (`tools/gesture.mjs`: swipe left/right turns pages but a short or vertical swipe does not; panel left/right third turns pages; middle opens the viewer at original size; double-tap, pinch, back closes it), a custom-layout Flash page (/mspa/008801 "[S] GAME OVER", /mspa/009987 "[S] Collide"), dark mode, and Save (bookmarks).
 - The emulator's reader is in new-reader mode; Flash pages past the limit are spoiler-locked. Save `settings.newReader`, set it to `false` to test, then restore it.
 - `perf.mjs`: the WebView writes localStorage to disk 1-2 s after a change; don't force-stop sooner when you expect state to survive.
 - Record changes in `CHANGELOG.md`.

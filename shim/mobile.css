@@ -253,3 +253,54 @@ html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 4px; }
 /* Music pages: Bandcamp's player stays inside the page width */
 html.uhc-phone iframe.bandcamp { width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
 html.uhc-phone .trackPage .info { width: auto !important; max-width: 100% !important; }
+
+/* ---------- reading gestures ---------- */
+
+/* Swipe / tap feedback: a brief arrow at the screen edge */
+#uhcSwipeHint {
+  position: fixed; top: 45%; z-index: 1500; pointer-events: none; opacity: 0;
+  font: bold 56px "Courier New", Courier, monospace; color: var(--uhc-link);
+  text-shadow: 0 0 6px var(--uhc-bar-bg);
+}
+#uhcSwipeHint.next { right: 12px; }
+#uhcSwipeHint.back { left: 12px; }
+#uhcSwipeHint.show { animation: uhcSwipe 0.45s ease-out; }
+@keyframes uhcSwipe { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #uhcSwipeHint.show { animation-duration: 0.01s; } }
+
+/* Panels: no text-selection highlight or long-press callout from a tap */
+html.uhc-phone .pageBody .media img { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* One-time tip */
+#uhcGestureTip {
+  position: fixed; left: 12px; right: 12px; bottom: calc(var(--uhc-bar-h, 120px) + 10px); z-index: 1400;
+  padding: 10px 12px; background: var(--uhc-bar-bg); color: var(--uhc-bar-ink);
+  border: 2px solid var(--uhc-bar-edge); font: 13px/1.4 Verdana, Geneva, Tahoma, sans-serif;
+  transition: opacity 0.4s;
+}
+#uhcGestureTip.gone { opacity: 0; }
+
+/* Full-size panel viewer */
+#uhcViewer { display: none; }
+#uhcViewer.open {
+  display: flex; flex-direction: column;
+  position: fixed; inset: 0; z-index: 2000; background: #000;
+}
+html.uhc-viewer-open, html.uhc-viewer-open body { overflow: hidden; }
+#uhcViewer .uhc-v-stage { position: relative; flex: 1 1 auto; overflow: hidden; touch-action: none; }
+#uhcViewer .uhc-v-img {
+  position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; max-height: none;
+  -webkit-user-select: none; user-select: none; -webkit-user-drag: none; pointer-events: none;
+}
+#uhcViewer .uhc-v-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; background: #262626; border-top: 2px solid #000; color: #fff;
+  font: 11px Verdana, Geneva, Tahoma, sans-serif;
+}
+#uhcViewer .uhc-v-tip { flex: 1 1 auto; text-align: center; color: hsla(0, 0%, 100%, 0.7); }
+#uhcViewer .uhc-v-bar button {
+  min-width: 48px; min-height: 48px; padding: 0 12px; background: #111; color: #59f;
+  border: 1px solid #363636; font: bold 14px "Courier New", Courier, monospace;
+}
+#uhcViewer .uhc-v-close { color: #fff; font-size: 18px; }
+#uhcViewer .uhc-v-bar button:focus-visible { outline: 2px solid #59f; outline-offset: 2px; }

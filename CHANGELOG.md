@@ -2,6 +2,24 @@
 
 Versions are `2.8.1-android.N`: the UHC release it runs, then this port's build number.
 
+## 2.8.1-android.9
+
+### New
+- **Swipe to turn pages:** swipe left for the next page, right for the previous one. It only counts a clearly
+  sideways swipe, so scrolling never turns a page, and it never starts on a Flash animation or while pinch-zoomed.
+- **Tap a panel to turn pages:** tap the left or right third of a panel to go back or forward. Taps on the
+  story text do nothing, as in long-scroll comic readers.
+- **Full-size panel viewer:** tap the middle of a panel to open it at its original size (the pixels the website
+  showed). Pinch to zoom, drag to move, double-tap to switch between fit-to-screen and original size; Android
+  back or ✕ closes it. Animated panels keep playing.
+- **Show big panels full size first** (off by default): when a panel had to shrink a lot to fit the screen,
+  such as the 950 px panels in later acts, it opens full size before you read the page.
+- Each gesture has its own switch in Settings → Application Theme → Reading gestures. A one-time tip explains them.
+
+### Fixed
+- After an app update, the WebView could keep using a cached copy of the old phone layer. The app now
+  loads each version fresh.
+
 ## 2.8.1-android.8
 
 ### Fixed
