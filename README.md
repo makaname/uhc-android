@@ -11,6 +11,10 @@ This repo has no Homestuck content. You need your own copy of the UHC asset pack
 3. Copy the zip into the phone's `Download` folder (LocalSend, USB, anything). Don't unzip it.
 4. Install the APK, open it, and turn on file access when asked. It finds the zip by itself. An unpacked `Asset Pack V2` folder works too.
 
+Works on Android 8 and later. The app has no internet permission: everything comes from the pack on your
+phone, and outside links open in your browser. Light or dark follows the phone; to fix one, use
+Settings → Application Theme.
+
 ## Build
 
 ```bash
@@ -19,6 +23,16 @@ node tools/fetch-uhc.mjs          # downloads + verifies the official 2.8.1 inst
 ```
 
 Needs Node 18+, 7-Zip (`7z`), JDK 17 and the Android SDK (platform 35, build-tools 35). On Windows these all install with Scoop: `7zip`, `java/temurin17-jdk`, `android-clt`.
+
+## Test
+
+```bash
+npm ci && npm run lint && npm test                  # ESLint + shim unit tests (Node 18+)
+cd android && ./gradlew testDebugUnitTest lintDebug # Java unit tests + Android lint
+node tools/perf.mjs 5                               # cold start and page-turn timings on a device/emulator
+```
+
+CI runs the first two on every push and pull request.
 
 ## Try it on a PC
 
@@ -35,10 +49,12 @@ Open http://127.0.0.1:8137/ in a browser window about 390px wide.
 |---|---|
 | `tools/fetch-uhc.mjs` | Recreates `vendor/uhc-2.8.1-app/` (not committed) from the official installer. |
 | `shim/uhc-shim.js` | Fakes `electron`, `electron-store`, `fs`, `path` and more. Loads the archive JSON, runs the built-in mods, redirects `assets://` and old mspaintadventures.com URLs. |
-| `shim/mobile.js`, `shim/mobile.css` | Phone layout: panels and Flash fit the screen width, the reader bar, light/dark following the phone. |
+| `shim/mobile.js`, `shim/mobile.css` | Phone layout: panels and Flash fit the screen width, the reader bar, light/dark (follows the phone, or a choice in Settings), system-bar colours. |
 | `tools/prepare-web.mjs` | Builds `build/assets/web`. Copies the bundle, injects the shim, and makes three edits: the chunk path, CSS asset URLs, and dropping the 80 MB desktop-only imods archive. |
 | `android/` | Java WebView app. `PackServer` serves the bundle from the APK and the pack (zip or folder, via `PackSource`) at `http://127.0.0.1:8137`. |
 | `tools/cdp.mjs` | Runs JavaScript inside the app on a device/emulator, for testing. |
+| `tools/perf.mjs` | Measures cold start and page turns on a device/emulator. |
+| `test/` | Node tests for the shim (run in a fake browser). Java tests are in `android/app/src/test/`. |
 | `tools/extract-sources.cjs` | Recovers UHC's original source from the bundle's source maps, for reference. |
 
 ## License
