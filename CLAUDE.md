@@ -30,6 +30,13 @@ On Windows: Java needs `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=<path with
 - Before handing over a build, check: setup and file access, story page panel fit and the reader bar next/back, Android back gesture, a Flash page with audio (page 2153 "[S] YOU THERE. BOY."), dark mode, and Save (bookmarks).
 - Bump `versionCode`/`versionName` in `android/app/build.gradle` for every APK the owner installs.
 
+## GitHub and releases
+
+- Repo: https://github.com/makaname/uhc-android (public). CI (`.github/workflows/build.yml`) builds every push and PR.
+- Release: bump nothing by hand; tag and push. `git tag v2.8.1-android.N && git push origin v2.8.1-android.N` publishes a Release with `UHC-Android-v2.8.1-android.N.apk` (versionCode N). N must keep increasing.
+- Signing: one permanent key at `~/.android/uhc-signing.jks` and `~/.android/uhc-signing.properties` (never commit it). CI uses repo secrets `UHC_KEYSTORE_B64` and `UHC_KEYSTORE_PASSWORD`, which the owner sets. Without them CI falls back to the debug key, and those APKs won't install over signed ones.
+- Work on a branch and open a PR for anything non-trivial; `main` should always build.
+
 ## Owner preferences
 
 - Reader-bar design. Theme follows the phone; the manual light/dark switch belongs in Settings, not in the reader UI.
