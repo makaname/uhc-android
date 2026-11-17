@@ -705,7 +705,7 @@
   patchNetwork(window);
 
   // Put a one-line hook at the top of every srcdoc iframe so it is patched before its scripts run.
-  var SRCDOC_HOOK = '<script>try{parent.UHCShim.patchNetwork(window)}catch(e){}<\/script>';
+  var SRCDOC_HOOK = '<script>try{parent.UHCShim.patchNetwork(window)}catch(e){}</scr' + 'ipt>';
   function hookSrcdoc(html) {
     return (typeof html === 'string' && html.indexOf('UHCShim.patchNetwork') < 0) ? SRCDOC_HOOK + html : html;
   }
