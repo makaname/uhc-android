@@ -23,7 +23,15 @@ A professional audit and polish pass. The full report is in [docs/audit/report.m
 - The Dark theme's animated Home logo now plays.
 - The reader bar keeps the Dark theme on pages that have their own colours.
 
+### Changed
+- **No more "All files access".** Setup is now one step: pick `UHC-Asset-Pack-V2.zip` in Android's file
+  picker. The app keeps read access to that one file only and asks for no permissions at all. It reads
+  the zip in place, as fast as before. Unpacked `Asset Pack V2` folders are no longer supported on the
+  phone; use the single zip. Updating from an earlier version shows setup once, to pick the zip.
+
 ### New
+- **Go to page:** tap the page counter ("253 / 8130") in the reader bar and type a page number.
+  The Android back gesture closes the box; pages past your new-reader limit still show UHC's spoiler page.
 - Settings → Application Theme: **Match the phone**, **Always light** or **Always dark**.
 - The status and navigation bars take the colours of the current UHC theme.
 - The screen stays on while a Flash or video page is open.

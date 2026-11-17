@@ -3,7 +3,7 @@ import js from "@eslint/js";
 import globals from "globals";
 
 export default [
-  { ignores: ["vendor/**", "build/**", "android/**", "shim/vendor/**", "node_modules/**", "dist/**"] },
+  { ignores: [".claude/**", "vendor/**", "build/**", "android/**", "shim/vendor/**", "node_modules/**", "dist/**"] },
   js.configs.recommended,
   {
     // Browser scripts that run in the WebView before/alongside the UHC bundle

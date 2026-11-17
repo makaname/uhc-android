@@ -172,8 +172,53 @@ public class PackSourceTest {
             raf.setLength(raf.length() + 10);
         }
         assertFalse(p.stillValid());
+        p.close();   // the zip keeps its file open; Windows can't delete an open file
         assertTrue(f.delete());
         assertFalse(p.stillValid());
+    }
+
+    /** The Android path: a picked file arrives as an open channel, not a path. */
+    @Test public void zipFromOpenChannel() throws IOException {
+        File f = zipPack(true, "");
+        RandomAccessFile raf = new RandomAccessFile(f, "r");
+        PackSource p = PackSource.openZip(raf.getChannel(), "picked.zip", () -> true, raf);
+        checkPack(p);
+        assertEquals("picked.zip", p.describe());
+        p.close();
+        assertFalse(raf.getChannel().isOpen());
+        assertFalse(p.stillValid());
+    }
+
+    @Test public void incompleteZipFromChannelClosesIt() throws IOException {
+        File f = zipPack(true, "");
+        try (RandomAccessFile raf = new RandomAccessFile(f, "rw")) {
+            raf.setLength(raf.length() / 2);   // a zip that's still copying has no central directory
+        }
+        RandomAccessFile raf = new RandomAccessFile(f, "r");
+        assertNull(PackSource.openZip(raf.getChannel(), "partial.zip", () -> true, raf));
+        assertFalse(raf.getChannel().isOpen());
+    }
+
+    /** Pages load many files at once; the shared channel must serve them concurrently. */
+    @Test public void concurrentReads() throws Exception {
+        File f = zipPack(true, "");
+        PackSource p = PackSource.open(f);
+        String[] names = {"archive/data/mspa.json", "storyfiles/hs2/00001.gif"};
+        byte[][] expected = new byte[names.length][];
+        for (int i = 0; i < names.length; i++) expected[i] = readAll(p.open(names[i], 0, -1));
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        java.util.List<java.util.concurrent.Future<Boolean>> results = new java.util.ArrayList<>();
+        for (int k = 0; k < 200; k++) {
+            int i = k % names.length;
+            results.add(pool.submit(() -> java.util.Arrays.equals(expected[i], readAll(p.open(names[i], 0, -1)))));
+        }
+        for (java.util.concurrent.Future<Boolean> r : results) assertTrue(r.get());
+        pool.shutdown();
+        p.close();
+    }
+
+    private static byte[] readAll(java.io.InputStream in) throws IOException {
+        try (in) { return in.readAllBytes(); }
     }
 
     @Test public void clean() {

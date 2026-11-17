@@ -59,17 +59,12 @@
 
     <ol>
       <li>
-        <div class="step"><b>1.</b><p>Copy <code>UHC-Asset-Pack-V2.zip</code> from your PC to your phone's <code>Download</code> folder. Don't unzip it; the app reads it as is.</p></div>
-        <p class="muted" style="margin-left:22px">LocalSend, a USB cable or anything else works. An unpacked <code>Asset Pack V2</code> folder works too.</p>
+        <div class="step"><b>1.</b><p>Copy <code>UHC-Asset-Pack-V2.zip</code> from your PC to your phone, for example into <code>Download</code>. Don't unzip it; the app reads it as is.</p></div>
+        <p class="muted" style="margin-left:22px">LocalSend, a USB cable or anything else works.</p>
       </li>
       <li>
-        <div class="step"><b>2.</b><p>Let the app read files on your phone.</p></div>
-        <button id="access" type="button">Allow file access</button>
-        <div id="accessState" class="state"></div>
-      </li>
-      <li>
-        <div class="step"><b>3.</b><p>The app looks in <code>Download</code> by itself. If you put the pack somewhere else, show it where.</p></div>
-        <button id="pick" type="button">Choose the folder it's in</button>
+        <div class="step"><b>2.</b><p>Show the app where it is. You only do this once; the app can read that one file and nothing else on your phone.</p></div>
+        <button id="pick" type="button">Choose UHC-Asset-Pack-V2.zip</button>
         <div id="pickState" class="state"></div>
         <button id="recheck" type="button" hidden>Check again</button>
       </li>
@@ -83,57 +78,44 @@
   function refresh() {
     var st = {};
     try { st = JSON.parse(N.status()); } catch (e) {}
-    if (st.hasAccess) {
-      $('access').disabled = true;
-      $('accessState').className = 'state ok';
-      $('accessState').textContent = 'File access is on.';
-      $('pick').disabled = false;
-    } else {
-      $('access').disabled = false;
-      $('accessState').className = 'state';
-      $('accessState').textContent = st.needsAllFilesAccess
-        ? 'Opens Android settings. Turn on "Allow access to manage all files", then come back.'
-        : 'Android will ask for permission.';
-      $('pick').disabled = true;
-    }
-
-    // Pack found but not yet confirmed complete
     var ps = $('pickState');
+    var name = st.packName || 'The file';
     $('recheck').hidden = true;
-    var where = st.packPath ? st.packPath.replace(/^\/storage\/emulated\/0\//, '') : '';
-    if (st.packPath && st.checking) {
+    $('pick').textContent = st.hasPack ? 'Choose a different file' : 'Choose UHC-Asset-Pack-V2.zip';
+
+    if (st.checking) {
       ps.className = 'state busy';
-      ps.textContent = 'Found ' + where + '. Checking that every file is there';
-    } else if (st.packPath && st.isZip && st.fileCount === 0) {
+      ps.textContent = 'Opening ' + name;
+    } else if (st.problem === 'incomplete') {
       ps.className = 'state bad';
-      ps.textContent = 'Found ' + where + ", but the zip isn't complete. If it is still copying, wait for it to finish, then check again.";
-      $('recheck').hidden = false;
-    } else if (st.packPath && st.fileCount >= 0 && st.fileCount < st.expectedFiles) {
-      ps.className = 'state bad';
-      ps.textContent = 'The asset pack is incomplete: ' + st.fileCount.toLocaleString() + ' of ' +
+      ps.textContent = name + ' is incomplete: ' + st.fileCount.toLocaleString() + ' of ' +
         st.expectedFiles.toLocaleString() + ' files. If it is still copying, wait for it to finish, then check again.';
       $('recheck').hidden = false;
-    } else if (st.packPath && st.fileCount >= st.expectedFiles) {
+    } else if (st.problem === 'unreadable') {
+      ps.className = 'state bad';
+      ps.textContent = name + " can't be read as a complete zip. If it is still copying, wait for it to finish, then check again.";
+      $('recheck').hidden = false;
+    } else if (st.problem === 'notzip') {
+      ps.className = 'state bad';
+      ps.textContent = name + " isn't the asset pack. Pick UHC-Asset-Pack-V2.zip.";
+    } else if (st.problem === 'moved') {
+      ps.className = 'state bad';
+      ps.textContent = 'The asset pack was moved, replaced or deleted. Choose it again.';
+    } else if (st.hasPack && st.fileCount >= st.expectedFiles) {
       ps.className = 'state ok busy';
       ps.textContent = 'All set. Opening the collection';
-    } else if (st.hasAccess && !st.packPath && !ps.textContent) {
+    } else {
       ps.className = 'state';
-      ps.textContent = 'No asset pack in Download yet.';
-      $('recheck').hidden = false;
+      ps.textContent = '';
     }
   }
 
-  $('access').addEventListener('click', function () { N.requestAccess(); });
-  $('pick').addEventListener('click', function () { $('pickState').textContent = ''; N.pickFolder(); });
+  $('pick').addEventListener('click', function () { $('pickState').textContent = ''; N.pickZip(); });
   $('recheck').addEventListener('click', function () { $('pickState').textContent = ''; N.recheck(); });
-  // While a count is running, poll so the status line updates when it finishes
-  setInterval(function () { try { if (JSON.parse(N.status()).checking) refresh(); } catch (e) {} }, 1500);
+  // While the zip is being opened, poll so the status line updates when it finishes
+  setInterval(function () { try { if (JSON.parse(N.status()).checking) refresh(); } catch (e) {} }, 1000);
 
   window.onNativeResume = refresh;
-  window.onPackRejected = function (path) {
-    $('pickState').className = 'state bad';
-    $('pickState').textContent = path + ' doesn\'t look like Asset Pack V2. Pick the folder that contains "archive" and "storyfiles".';
-  };
   if (N) refresh();
 </script>
 </body>
