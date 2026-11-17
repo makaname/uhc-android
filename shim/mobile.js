@@ -434,6 +434,100 @@
     openInApp: openInApp
   };
 
+  // ---------- readable chat colours on dark backgrounds ----------
+  // Pesterlog and dialogue colours were picked for MSPA's white page; on UHC's Dark theme (or any dark
+  // page) some are near-unreadable: John #0715cd, Equius #000056, Gamzee #2b0057, Aradia, Karkat's grey.
+  // Any coloured text with too little contrast on a dark background is lightened, keeping its hue and
+  // saturation, just until it reaches WCAG AA (4.5:1). Light backgrounds keep the original colours.
+
+  var MIN_CONTRAST = 4.5;
+  var adjustedCache = {};
+
+  function parseRgb(s) {
+    var m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/.exec(s || '');
+    return m ? { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] } : null;
+  }
+  function luminance(c) {
+    function ch(v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+    return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
+  }
+  function contrast(l1, l2) { return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); }
+  function toHsl(c) {
+    var r = c.r / 255, g = c.g / 255, b = c.b / 255, max = Math.max(r, g, b), min = Math.min(r, g, b);
+    var h = 0, s = 0, l = (max + min) / 2, d = max - min;
+    if (d) {
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h /= 6;
+    }
+    return { h: h, s: s, l: l };
+  }
+  function fromHsl(h, s, l) {
+    function f(p, q, t) {
+      if (t < 0) t += 1; if (t > 1) t -= 1;
+      return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p;
+    }
+    if (!s) { var v = Math.round(l * 255); return { r: v, g: v, b: v }; }
+    var q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    return { r: Math.round(f(p, q, h + 1 / 3) * 255), g: Math.round(f(p, q, h) * 255), b: Math.round(f(p, q, h - 1 / 3) * 255) };
+  }
+  /** The lightened colour, or null if the original is already readable on this background. */
+  function readableOn(fg, bgLum) {
+    var key = fg.r + ',' + fg.g + ',' + fg.b + '|' + bgLum.toFixed(3);
+    if (key in adjustedCache) return adjustedCache[key];
+    var out = null;
+    if (contrast(luminance(fg), bgLum) < MIN_CONTRAST) {
+      var hsl = toHsl(fg), l = hsl.l;
+      while (l < 0.97 && contrast(luminance(fromHsl(hsl.h, hsl.s, l)), bgLum) < MIN_CONTRAST) l += 0.01;
+      // Keep the cast's relative shades: an originally lighter colour stays a bit lighter than a darker
+      // one of the same hue (John #0715cd vs Equius #000056 would otherwise land on the same blue).
+      var c = fromHsl(hsl.h, hsl.s, Math.min(0.97, l + 0.3 * hsl.l));
+      out = 'rgb(' + c.r + ', ' + c.g + ', ' + c.b + ')';
+    }
+    adjustedCache[key] = out;
+    return out;
+  }
+  function backgroundOf(el) {
+    for (var e = el; e && e.nodeType === 1; e = e.parentElement) {
+      var c = parseRgb(getComputedStyle(e).backgroundColor);
+      if (c && c.a > 0.5) return c;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 };
+  }
+
+  function fixChatColors(tab) {
+    if (!tab) return;
+    var els = tab.querySelectorAll('.pageBody [style*="color"], .pageBody font[color]');
+    var bgCache = new Map();
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.closest('svg, .media')) continue;   // leave artwork and Flash alone
+      // Remember the author's colour the first time we see the element.
+      if (!el.hasAttribute('data-uhc-color')) {
+        var authored = el.style.color || el.getAttribute('color') || '';
+        if (!authored) continue;
+        el.setAttribute('data-uhc-color', authored);
+      }
+      var parent = el.parentElement;
+      var bg = bgCache.get(parent);
+      if (!bg) { bg = backgroundOf(parent); bgCache.set(parent, bg); }
+      var bgKey = bg.r + ',' + bg.g + ',' + bg.b;
+      if (el.getAttribute('data-uhc-bg') === bgKey) continue;   // already handled for this background
+      el.setAttribute('data-uhc-bg', bgKey);
+
+      var original = el.getAttribute('data-uhc-color');
+      el.style.color = original;   // measure (and restore, on light pages) the authored colour
+      var bgLum = luminance(bg);
+      if (bgLum > 0.2) continue;   // light background: keep MSPA's colours as they were
+      // (Near-black colours like Equius's #000056 were written for a white page, so they get lightened
+      // too; MSPA's hidden messages were light-on-light, which a dark background already reveals.)
+      var fg = parseRgb(getComputedStyle(el).color);
+      if (!fg) continue;
+      var better = readableOn(fg, bgLum);
+      if (better) el.style.color = better;
+    }
+  }
+
   whenAppReady(function (vm) {
     var bar = buildBar(vm);
     followTheme(vm);
@@ -447,6 +541,7 @@
         applyPhoneClass();
         var tab = activeTabEl(vm);
         fitMedia(tab);
+        fixChatColors(tab);
         startAutoplay(tab);
         addThemeChoice(vm, tab);
         updateBar(vm, bar);
