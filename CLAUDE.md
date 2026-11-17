@@ -1,0 +1,37 @@
+# UHC for Android
+
+Android port of The Unofficial Homestuck Collection 2.8.1. The **compiled** UHC bundle runs unchanged in a WebView;
+`shim/` fakes Electron/Node for it. Do not switch to building UHC from its GitHub source: the owner reports an
+unknown bug there, while the compiled 2.8.1 release works.
+
+## Layout
+
+- `tools/fetch-uhc.mjs` puts the compiled bundle in `vendor/uhc-2.8.1-app/` (gitignored) from the official installer, SHA-256 checked.
+- `shim/uhc-shim.js` is the Electron/Node stand-in: `require()`, IPC, electron-store (localStorage), read-only fs over HTTP, imod CommonJS loader, `assets://` redirection.
+- `shim/mobile.js` and `shim/mobile.css` hold the phone UI: reader bar, media zoom-to-fit, light/dark following the system.
+- `tools/prepare-web.mjs` builds `build/assets/web` (copied into the APK). It edits only index.html, the webpack public path and CSS `assets://` URLs, and drops the desktop-only imods archive chunk.
+- `android/` is a plain Java WebView app, with no AndroidX. `PackServer` serves `http://127.0.0.1:8137/` (bundle) and `/pack/` (asset pack). `PackSource` reads the pack from a folder or, preferably, `UHC-Asset-Pack-V2.zip` in place.
+- The asset pack is copyrighted and 4.4 GB. Never commit it. Phones get it as one stored zip via LocalSend or USB.
+
+## Commands
+
+```bash
+node tools/fetch-uhc.mjs [path/to/installer.exe]   # once per checkout
+node tools/prepare-web.mjs && node tools/dev-server.mjs "<path to Asset Pack V2>"   # browser harness at 127.0.0.1:8137 (use ~390px width)
+./build-apk.sh                                     # debug APK -> android/app/build/outputs/apk/debug/app-debug.apk
+node tools/cdp.mjs "<js>"                          # evaluate JS in the app's WebView on the emulator/device
+```
+
+On Windows: Java needs `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=<path without spaces>` (build-apk.sh sets it). adb, the emulator and Gradle need the sandbox disabled because they use loopback sockets. In Git Bash, set `MSYS_NO_PATHCONV=1` for adb paths like `/sdcard`.
+
+## Testing
+
+- The emulator is AVD `UHC_Android17` (Android 17 / API 37, matching the owner's OnePlus 15). Install with `adb install -r`, push the pack zip to `/sdcard/Download/`, and check with `tools/cdp.mjs` plus `adb exec-out screencap -p`.
+- Before handing over a build, check: setup and file access, story page panel fit and the reader bar next/back, Android back gesture, a Flash page with audio (page 2153 "[S] YOU THERE. BOY."), dark mode, and Save (bookmarks).
+- Bump `versionCode`/`versionName` in `android/app/build.gradle` for every APK the owner installs.
+
+## Owner preferences
+
+- Reader-bar design. Theme follows the phone; the manual light/dark switch belongs in Settings, not in the reader UI.
+- Panels and Flash scale to screen width keeping their shape (like the 650px column on the original site); text reflows.
+- Keep it fast, themed like UHC, and streamlined.

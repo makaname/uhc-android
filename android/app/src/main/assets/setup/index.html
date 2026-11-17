@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Set up</title>
+<style>
+  :root {
+    --outer: #535353; --frame: #c6c6c6; --content: #eeeeee; --ink: #000; --muted: #444;
+    --link: #0000ee; --ok: #1a7f1a; --bad: #b00000; --button: #fff; --button-border: #8a8a8a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --outer: #000; --frame: #262626; --content: #000; --ink: #fff; --muted: hsla(0,0%,100%,0.65);
+      --link: #59f; --ok: #5fd35f; --bad: #ff6b6b; --button: #111; --button-border: #363636;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--outer); color: var(--ink);
+    font-family: "Courier New", Courier, monospace; font-weight: bold;
+    -webkit-text-size-adjust: 100%;
+  }
+  .frame { background: var(--frame); padding: 6px; max-width: 520px; margin: 0 auto; min-height: 100vh; }
+  .content { background: var(--content); padding: 18px 14px 24px; }
+  h1 { font-size: 21px; line-height: 1.2; text-align: center; margin: 0 0 14px; }
+  p { font-size: 14px; line-height: 1.45; margin: 0 0 12px; }
+  .muted { color: var(--muted); font-family: Verdana, Geneva, sans-serif; font-weight: normal; font-size: 12px; }
+  ol { list-style: none; padding: 0; margin: 18px 0 0; }
+  li { border-top: 1px dashed #808080; padding: 14px 0; }
+  .step { display: flex; gap: 10px; align-items: baseline; }
+  .step b { flex: none; }
+  .state { font-family: Verdana, Geneva, sans-serif; font-size: 12px; margin: 6px 0 0 22px; }
+  .state.ok { color: var(--ok); }
+  .state.bad { color: var(--bad); }
+  button {
+    display: block; width: calc(100% - 22px); margin: 10px 0 0 22px; min-height: 44px;
+    background: var(--button); color: var(--link); border: 1px solid var(--button-border);
+    font: bold 15px "Courier New", Courier, monospace; text-align: left; padding: 10px 12px;
+  }
+  button::before { content: "> "; color: var(--ink); }
+  button:disabled { color: var(--muted); }
+  button[hidden] { display: none; }
+  button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+  code { font-family: inherit; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <main class="content">
+    <h1>Homestuck Collection</h1>
+    <p>The app needs the Unofficial Homestuck Collection's asset pack (Asset Pack V2, about 4.4 GB). It stays on your phone; nothing is downloaded.</p>
+
+    <ol>
+      <li>
+        <div class="step"><b>1.</b><p>Copy <code>UHC-Asset-Pack-V2.zip</code> from your PC to your phone's <code>Download</code> folder. Don't unzip it; the app reads it as is.</p></div>
+        <p class="muted" style="margin-left:22px">LocalSend, a USB cable or anything else works. An unpacked <code>Asset Pack V2</code> folder works too.</p>
+      </li>
+      <li>
+        <div class="step"><b>2.</b><p>Let the app read files on your phone.</p></div>
+        <button id="access" type="button">Allow file access</button>
+        <div id="accessState" class="state"></div>
+      </li>
+      <li>
+        <div class="step"><b>3.</b><p>Point the app at the folder.</p></div>
+        <button id="pick" type="button">Choose the folder it's in</button>
+        <div id="pickState" class="state"></div>
+        <button id="recheck" type="button" hidden>Check again</button>
+      </li>
+    </ol>
+  </main>
+</div>
+<script>
+  var N = window.UHCNative;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function refresh() {
+    var st = {};
+    try { st = JSON.parse(N.status()); } catch (e) {}
+    if (st.hasAccess) {
+      $('access').disabled = true;
+      $('accessState').className = 'state ok';
+      $('accessState').textContent = 'File access is on.';
+      $('pick').disabled = false;
+    } else {
+      $('access').disabled = false;
+      $('accessState').className = 'state';
+      $('accessState').textContent = st.needsAllFilesAccess
+        ? 'Opens Android settings. Turn on "Allow access to manage all files", then come back.'
+        : 'Android will ask for permission.';
+      $('pick').disabled = true;
+    }
+
+    // Pack found but not yet confirmed complete
+    var ps = $('pickState');
+    $('recheck').hidden = true;
+    if (st.packPath && st.checking) {
+      ps.className = 'state';
+      ps.textContent = 'Found ' + st.packPath + '. Checking that every file is there...';
+    } else if (st.packPath && st.fileCount >= 0 && st.fileCount < st.expectedFiles) {
+      ps.className = 'state bad';
+      ps.textContent = 'The asset pack is incomplete: ' + st.fileCount.toLocaleString() + ' of ' +
+        st.expectedFiles.toLocaleString() + ' files. If it is still copying, wait for it to finish, then check again.';
+      $('recheck').hidden = false;
+    }
+  }
+
+  $('access').addEventListener('click', function () { N.requestAccess(); });
+  $('pick').addEventListener('click', function () { $('pickState').textContent = ''; N.pickFolder(); });
+  $('recheck').addEventListener('click', function () { N.recheck(); });
+  // While a count is running, poll so the status line updates when it finishes
+  setInterval(function () { try { if (JSON.parse(N.status()).checking) refresh(); } catch (e) {} }, 1500);
+
+  window.onNativeResume = refresh;
+  window.onPackRejected = function (path) {
+    $('pickState').className = 'state bad';
+    $('pickState').textContent = path + ' doesn\'t look like Asset Pack V2. Pick the folder that contains "archive" and "storyfiles".';
+  };
+  if (N) refresh();
+</script>
+</body>
+</html>

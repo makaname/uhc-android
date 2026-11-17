@@ -1,0 +1,28 @@
+# Fetched or generated, never committed
+/vendor/uhc-2.8.1-app/
+/vendor/uhc-2.8.1-source-reference/
+/build/
+/dist/
+/.jtmp/
+
+# Android / Gradle
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/.idea/
+*.iml
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Asset pack content is copyrighted and huge; it never goes in the repo
+*.zip
+/Asset Pack*/
+
+# Tooling
+node_modules/
+.playwright-mcp/
+.DS_Store
+Thumbs.db

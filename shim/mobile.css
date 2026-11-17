@@ -1,0 +1,148 @@
+/*
+ * mobile.css: phone layout on top of the original UHC stylesheets.
+ * Everything is scoped to html.uhc-phone (set by mobile.js), so the desktop look is untouched otherwise.
+ * Panels and Flash are scaled by mobile.js (zoom on .media); text reflows at a readable size.
+ */
+
+/* ---------- reader bar tokens (light = MSPA grey, dark = UHC's Dark theme) ---------- */
+:root {
+  --uhc-bar-bg: #c6c6c6;
+  --uhc-bar-edge: #535353;
+  --uhc-bar-ink: #000;
+  --uhc-bar-muted: #333;
+  --uhc-next-bg: #eeeeee;
+  --uhc-next-border: #8a8a8a;
+  --uhc-link: #0000ee;
+  --uhc-track: #a3a3a3;
+}
+:root[data-uhc-theme="dark"] {
+  --uhc-bar-bg: #262626;
+  --uhc-bar-edge: #000;
+  --uhc-bar-ink: #fff;
+  --uhc-bar-muted: hsla(0, 0%, 100%, 0.6);
+  --uhc-next-bg: #111;
+  --uhc-next-border: #363636;
+  --uhc-link: #59f;
+  --uhc-track: #404040;
+}
+
+#uhcReaderBar { display: none; }
+
+/* ---------- streamlined chrome ---------- */
+html.uhc-phone #appHeader { display: none !important; }            /* window buttons, tabs, address bar */
+html.uhc-phone .navBanner { display: none !important; }            /* desktop nav strip; Home covers it */
+html.uhc-phone .tabFrame {
+  height: 100vh !important;
+  height: 100dvh !important;
+  padding-bottom: var(--uhc-bar-h, 0px) !important;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------- story page: full width, panels fit the screen ---------- */
+html.uhc-phone .pageBody { min-width: 0 !important; width: 100% !important; }
+html.uhc-phone .pageBody .pageFrame {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 0 16px !important;
+  margin: 0 !important;
+  box-sizing: border-box;
+}
+html.uhc-phone .pageBody .pageContent,
+html.uhc-phone .pageBody .mediaContent,
+html.uhc-phone .pageBody .textContent {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
+}
+html.uhc-phone .pageBody .pageTitle {
+  padding: 12px 12px 10px !important;
+  margin: 0 !important;
+  font-size: 20px !important;
+  line-height: 1.2 !important;
+  overflow-wrap: anywhere;
+}
+/* .media keeps its original pixel size; mobile.js zooms it down to fit (shape and click positions preserved) */
+html.uhc-phone .pageBody .media {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: none;
+}
+/* Smooth scaling: phone scale factors aren't whole numbers, so nearest-neighbour gives uneven pixels */
+html.uhc-phone .pageBody .media img { image-rendering: auto; }
+
+html.uhc-phone .pageBody .textContent { padding: 0 12px !important; }
+html.uhc-phone .pageBody .textContent img,
+html.uhc-phone .pageBody .textContent video { max-width: 100% !important; height: auto !important; }
+html.uhc-phone .pageBody .log { width: auto !important; margin-left: 0 !important; margin-right: 0 !important; }
+html.uhc-phone .pageBody .logContent { overflow-wrap: anywhere; }
+html.uhc-phone .pageBody .logButton { min-height: 36px; padding: 6px 14px; }
+
+/* The next command lives in the reader bar; keep the in-page links but give them room */
+html.uhc-phone .pageBody .pageNavigation { width: 100% !important; }
+html.uhc-phone .pageBody .nextArrow { font-size: 18px !important; }
+html.uhc-phone .pageBody .footerNav { flex-wrap: wrap; gap: 6px; }
+html.uhc-phone .pageBody .footerNav a { padding: 6px 0; display: inline-block; }
+
+/* Other pages built for a fixed desktop width */
+html.uhc-phone .pageBody img { max-width: 100%; height: auto; }
+html.uhc-phone .pageBody .media img { max-width: none; }
+html.uhc-phone .pageBody .card,
+html.uhc-phone .pageBody .homepage,
+html.uhc-phone .pageBody .pageContent > * { max-width: 100%; }
+html.uhc-phone .footer .bannerImage { max-width: 22vw; height: auto; }
+
+/* ---------- reader bar ---------- */
+html.uhc-phone #uhcReaderBar {
+  display: block;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
+  background: var(--uhc-bar-bg);
+  border-top: 2px solid var(--uhc-bar-edge);
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+  color: var(--uhc-bar-ink);
+}
+/* Native shell pads for the navigation bar itself; don't add the safe-area inset twice */
+html.uhc-native.uhc-phone #uhcReaderBar { padding-bottom: 8px; }
+#uhcReaderBar .uhc-next {
+  display: block;
+  margin-bottom: 8px;
+  padding: 11px 12px;
+  background: var(--uhc-next-bg);
+  border: 1px solid var(--uhc-next-border);
+  color: var(--uhc-link);
+  font-family: "Courier New", Courier, monospace;
+  font-weight: bold;
+  font-size: 16px;
+  line-height: 1.25;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+#uhcReaderBar .uhc-next[hidden] { display: none; }
+#uhcReaderBar .uhc-next::before { content: "> "; color: var(--uhc-bar-ink); }
+#uhcReaderBar .uhc-controls {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr) 1.6fr;
+  gap: 6px;
+  align-items: center;
+}
+#uhcReaderBar button {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 44px;
+  background: none; border: 0; padding: 4px 0;
+  color: var(--uhc-bar-ink);
+  font: 10px Verdana, Geneva, Tahoma, sans-serif;
+  cursor: pointer;
+}
+#uhcReaderBar svg {
+  width: 20px; height: 20px;
+  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+}
+#uhcReaderBar .uhc-progress { font-size: 10px; color: var(--uhc-bar-muted); text-align: right; }
+#uhcReaderBar .uhc-progress[hidden] { visibility: hidden; display: block; }
+#uhcReaderBar .uhc-track { height: 4px; background: var(--uhc-track); margin-top: 4px; }
+#uhcReaderBar .uhc-fill { height: 100%; width: 0; background: var(--uhc-link); }
+#uhcReaderBar a:focus-visible, #uhcReaderBar button:focus-visible { outline: 2px solid var(--uhc-link); outline-offset: 2px; }

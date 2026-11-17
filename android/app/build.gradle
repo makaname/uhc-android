@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'uhc.android.reader'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'uhc.android.reader'
+        minSdk 26
+        targetSdk 35
+        versionCode 4
+        versionName '2.8.1-android.4'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            // build/assets/web is produced by tools/prepare-web.mjs (the UHC bundle + shim)
+            assets.srcDirs = ['src/main/assets', '../../build/assets']
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+}
+
+// Rebuild the web bundle before packaging assets, so the APK never ships a stale shim.
+tasks.register('prepareWeb', Exec) {
+    workingDir = file('../..')
+    commandLine 'node', 'tools/prepare-web.mjs'
+}
+tasks.named('preBuild') { dependsOn 'prepareWeb' }
