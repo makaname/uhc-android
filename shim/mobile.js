@@ -75,13 +75,13 @@
       var avail = (m.parentElement || m).clientWidth;
       if (!avail) continue;
       var key = mediaKey(m, avail);
-      if (fitted.get(m) === key) continue;
+      if (fitted.get(m) === key + "|" + m.style.zoom) continue;   // also re-fit if the zoom was wiped
       m.style.zoom = '';
       var nat = naturalWidth(m);
       if (!nat) continue;
       var z = Math.min(1, avail / nat);
       if (z < 0.999) m.style.zoom = String(z);
-      fitted.set(m, key);
+      fitted.set(m, key + "|" + m.style.zoom);
     }
     // Some special pages ([S] GAME OVER and other Act 6 pages) put the Flash straight into
     // .mediaContent without a .media wrapper; zoom the embed itself.
@@ -91,10 +91,10 @@
       var room = e.parentElement.clientWidth, w = e.offsetWidth;
       if (!room || !w) continue;
       var k = room + ':' + w;
-      if (fitted.get(e) === k) continue;
+      if (fitted.get(e) === k + "|" + e.style.zoom) continue;
       var zz = Math.min(1, room / w);
       e.style.zoom = zz < 0.999 ? String(zz) : '';
-      fitted.set(e, k);
+      fitted.set(e, k + "|" + e.style.zoom);
     }
     // Fully custom pages ([S] Collide, [S] Act 7, ...) have their own fixed-width layout:
     // scale any block that is still wider than the screen as a whole.
@@ -107,10 +107,10 @@
         if (blk.classList.contains('pageFrame') || blk.id === 'uhcReaderBar') continue;
         var bw = Math.max(blk.offsetWidth, blk.scrollWidth);
         var bk = room2 + ':' + bw;
-        if (fitted.get(blk) === bk) continue;
+        if (fitted.get(blk) === bk + "|" + blk.style.zoom) continue;
         var bz = bw > room2 + 2 ? room2 / bw : 1;
         blk.style.zoom = bz < 0.999 ? String(bz) : '';
-        fitted.set(blk, bk);
+        fitted.set(blk, bk + "|" + blk.style.zoom);
       }
     }
   }
