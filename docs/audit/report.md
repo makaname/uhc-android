@@ -110,20 +110,7 @@ speed/UX cost; **Low** = polish and hygiene.
 
 ## Screenshots
 
-Reader bar: before (light), after light, after dark, Save panel.
-![Reader bar](reader-bar.png)
-
-Landscape, dark: one-row bar.
-![Landscape](landscape.png)
-
-Search: before, after light, after dark.
-![Search](search.png)
-
-Settings → Application Theme: before, after light, after dark.
-![Settings](settings-theme.png)
-
-Flash fit: [S] GAME OVER before/after, [S] Collide before/after, [S] Act 7 after.
-![Flash fit](flash-fit.png)
-
-[S] YOU THERE. BOY., [S] Cascade, Home (Dark theme), setup page (dark).
-![Flash pages](flash-pages.png)
+The audit took before/after screenshots of the reader bar (light, dark, Save panel), landscape, Search,
+Settings → Application Theme, Flash fit ([S] GAME OVER, [S] Collide, [S] Act 7) and Flash pages
+([S] YOU THERE. BOY., [S] Cascade, Home, setup). They aren't kept in this public repo because they show
+excerpts of Homestuck pages.
