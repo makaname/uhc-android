@@ -1,62 +1,41 @@
 # UHC for Android
 
-[The Unofficial Homestuck Collection](https://github.com/GiovanH/unofficial-homestuck-collection) 2.8.1, running on an Android phone. The official compiled bundle runs unchanged inside a WebView; a small shim stands in for Electron and Node, and a phone layer adds a reader bar and screen-fitted panels.
+Read Homestuck on your Android phone with
+**[The Unofficial Homestuck Collection](https://bambosh.dev/unofficial-homestuck-collection/)** (UHC).
 
-This repo has no Homestuck content. You need your own copy of the UHC asset pack (Asset Pack V2).
+UHC is the offline collection of Homestuck and its related works: the full story with its Flash animations, music,
+extras and mods. This app brings UHC 2.8.1 to Android: the same reader, the same themes, laid out for a phone screen.
 
-## Install on a phone
+> **Not affiliated with UHC.** This is an independent fan port. UHC is made by its own team; please support
+> their work and report problems with this app here, not to them.
 
-1. Get the APK from [Releases](../../releases), or build it (below).
-2. Make the single-file asset pack on a PC: zip the *contents* of your `Asset Pack V2` folder, uncompressed, as `UHC-Asset-Pack-V2.zip`. With 7-Zip: `7z a -tzip -mx0 UHC-Asset-Pack-V2.zip .` from inside the folder. If you've run the desktop app before, use that folder, since it includes the unpacked built-in mods (`archive/imods`).
-3. Copy the zip into the phone's `Download` folder (LocalSend, USB, anything). Don't unzip it.
-4. Install the APK, open it, and tap **Choose UHC-Asset-Pack-V2.zip** to pick the zip once. The app asks for no permissions; it keeps read access to that one file only.
+## Features
 
-Works on Android 8 and later. Everything comes from the pack on your phone. The only thing the app reaches online is Bandcamp's
-player, so songs play on UHC's Music pages; it refuses every other site, and outside links open in your browser. Light or dark follows the phone; to fix one, use
-Settings → Application Theme.
+- **The real UHC.** Runs UHC's own 2.8.1 interface, so pages, themes, settings, save points and built-in mods work like on desktop.
+- **Made for a phone.** Panels and Flash animations scale to fit the screen; text reflows to the width.
+- **Reader bar.** Next and back, save, settings, and a page counter you can tap to jump to any page.
+- **Reading gestures.** Swipe or tap the edges of a panel to turn the page. Tap a panel to view it large, then pinch to zoom.
+- **Flash with sound**, played through Ruffle.
+- **Light and dark mode** that follows your phone, with readable Pesterlog colours in the dark.
+- **Offline and private.** Everything is read from your own copy of the asset pack. The only thing that goes online is Bandcamp's player on the Music pages.
 
-## Build
+## Getting started
 
-```bash
-node tools/fetch-uhc.mjs          # downloads + verifies the official 2.8.1 installer, unpacks the UI bundle into vendor/
-./build-apk.sh                    # -> android/app/build/outputs/apk/debug/app-debug.apk
-```
+1. **Get the UHC asset pack.** This app contains no Homestuck content. Download UHC and its Asset Pack V2 from the
+   [Unofficial Homestuck Collection website](https://bambosh.dev/unofficial-homestuck-collection/).
+2. **Open it once in UHC on your computer.** On first launch, desktop UHC unpacks its built-in mods into the asset
+   pack folder, and the Android app needs them.
+3. **Zip it.** Put the contents of the `Asset Pack V2` folder into one zip file named `UHC-Asset-Pack-V2.zip`
+   (uncompressed is fastest), and copy it to your phone. Don't unzip it on the phone.
+4. **Install the app.** Download the latest APK from [Releases](../../releases/latest) and install it.
+5. **Pick the zip.** Open the app and tap **Choose UHC-Asset-Pack-V2.zip**. You only do this once.
 
-Needs Node 18+, 7-Zip (`7z`), JDK 17 and the Android SDK (platform 35, build-tools 35). On Windows these all install with Scoop: `7zip`, `java/temurin17-jdk`, `android-clt`.
+Needs Android 8 or later. The app asks for no permissions; it keeps read access to that one file only.
 
-## Test
+## Building from source
 
-```bash
-npm ci && npm run lint && npm test                  # ESLint + shim unit tests (Node 18+)
-cd android && ./gradlew testDebugUnitTest lintDebug # Java unit tests + Android lint
-node tools/perf.mjs 5                               # cold start and page-turn timings on a device/emulator
-```
-
-CI runs the first two on every push and pull request.
-
-## Try it on a PC
-
-```bash
-node tools/prepare-web.mjs
-node tools/dev-server.mjs "<path to Asset Pack V2>"
-```
-
-Open http://127.0.0.1:8137/ in a browser window about 390px wide.
-
-## How it fits together
-
-| Path | What it is |
-|---|---|
-| `tools/fetch-uhc.mjs` | Recreates `vendor/uhc-2.8.1-app/` (not committed) from the official installer. |
-| `shim/uhc-shim.js` | Fakes `electron`, `electron-store`, `fs`, `path` and more. Loads the archive JSON, runs the built-in mods, redirects `assets://` and old mspaintadventures.com URLs. |
-| `shim/mobile.js`, `shim/mobile.css` | Phone layout: panels and Flash fit the screen width, the reader bar, light/dark (follows the phone, or a choice in Settings), system-bar colours. |
-| `tools/prepare-web.mjs` | Builds `build/assets/web`. Copies the bundle, injects the shim, and makes three edits: the chunk path, CSS asset URLs, and dropping the 80 MB desktop-only imods archive. |
-| `android/` | Java WebView app. `PackServer` serves the bundle from the APK and the pack (zip or folder, via `PackSource`) at `http://127.0.0.1:8137`. |
-| `tools/cdp.mjs` | Runs JavaScript inside the app on a device/emulator, for testing. |
-| `tools/perf.mjs` | Measures cold start and page turns on a device/emulator. |
-| `test/` | Node tests for the shim (run in a fake browser). Java tests are in `android/app/src/test/`. |
-| `tools/extract-sources.cjs` | Recovers UHC's original source from the bundle's source maps, for reference. |
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
-GPL-3.0, like UHC itself. Homestuck and its assets belong to their owners.
+GPL-3.0, like UHC itself. Homestuck and its assets belong to their respective owners.
