@@ -2,7 +2,7 @@
 
 Versions are `2.8.1-android.N`: the UHC release it runs, then this port's build number.
 
-## 2.8.1-android.6 (unreleased)
+## 2.8.1-android.6
 
 A professional audit and polish pass. The full report is in [docs/audit/report.md](docs/audit/report.md).
 
